@@ -551,6 +551,24 @@ impl ClientConnection {
         })
     }
 
+    /// Make a new ClientConnection with a session id generator.  `config` controls how
+    pub fn new_with_session_id_generator(
+        config: Arc<ClientConfig>,
+        name: ServerName,
+        generator: Option<impl Fn(&[u8]) -> [u8; 32]>,
+    ) -> Result<Self, Error> {
+        Ok(Self {
+            inner: ConnectionCore::for_client_with_session_id_generator(
+                config,
+                name,
+                Vec::new(),
+                Protocol::Tcp,
+                generator,
+            )?
+            .into(),
+        })
+    }
+
     /// Returns an `io::Write` implementer you can write bytes to
     /// to send TLS1.3 early data (a.k.a. "0-RTT data") to the server.
     ///
@@ -666,7 +684,33 @@ impl ConnectionCore<ClientConnectionData> {
             data: &mut data,
         };
 
-        let state = hs::start_handshake(name, extra_exts, config, &mut cx)?;
+        let state =
+            hs::start_handshake::<fn(&[u8]) -> [u8; 32]>(name, extra_exts, config, &mut cx, None)?;
+        Ok(Self::new(state, data, common_state))
+    }
+
+    pub(crate) fn for_client_with_session_id_generator(
+        config: Arc<ClientConfig>,
+        name: ServerName,
+        extra_exts: Vec<ClientExtension>,
+        proto: Protocol,
+        generator: Option<impl Fn(&[u8]) -> [u8; 32]>,
+    ) -> Result<Self, Error> {
+        let mut common_state = CommonState::new(Side::Client);
+        common_state.set_max_fragment_size(config.max_fragment_size)?;
+        common_state.protocol = proto;
+        #[cfg(feature = "secret_extraction")]
+        {
+            common_state.enable_secret_extraction = config.enable_secret_extraction;
+        }
+        let mut data = ClientConnectionData::new();
+
+        let mut cx = hs::ClientContext {
+            common: &mut common_state,
+            data: &mut data,
+        };
+
+        let state = hs::start_handshake(name, extra_exts, config, &mut cx, generator)?;
         Ok(Self::new(state, data, common_state))
     }
 

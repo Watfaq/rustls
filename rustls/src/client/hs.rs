@@ -10,6 +10,7 @@ use crate::kx;
 #[cfg(feature = "logging")]
 use crate::log::{debug, trace};
 use crate::msgs::base::Payload;
+use crate::msgs::codec::Codec;
 use crate::msgs::enums::{Compression, ExtensionType};
 use crate::msgs::enums::{ECPointFormat, PSKKeyExchangeMode};
 use crate::msgs::handshake::ConvertProtocolNameList;
@@ -86,12 +87,16 @@ fn find_session(
     found
 }
 
-pub(super) fn start_handshake(
+pub(super) fn start_handshake<T>(
     server_name: ServerName,
     extra_exts: Vec<ClientExtension>,
     config: Arc<ClientConfig>,
     cx: &mut ClientContext<'_>,
-) -> NextStateOrError {
+    session_id_generator: Option<T>,
+) -> NextStateOrError
+where
+    T: Fn(&[u8]) -> [u8; 32],
+{
     let mut transcript_buffer = HandshakeHashBuffer::new();
     if config
         .client_auth_cert_resolver
@@ -113,8 +118,7 @@ pub(super) fn start_handshake(
         None
     };
 
-    #[cfg_attr(not(feature = "tls12"), allow(unused_mut))]
-    let mut session_id = None;
+    let mut session_id: Option<SessionId> = None;
     if let Some(_resuming) = &mut resuming {
         #[cfg(feature = "tls12")]
         if let ClientSessionValue::Tls12(inner) = &mut _resuming.value {
@@ -149,6 +153,7 @@ pub(super) fn start_handshake(
         extra_exts,
         may_send_sct_list,
         None,
+        session_id_generator,
         ClientHelloInput {
             config,
             resuming,
@@ -189,16 +194,20 @@ struct ClientHelloInput {
     server_name: ServerName,
 }
 
-fn emit_client_hello_for_retry(
+fn emit_client_hello_for_retry<T>(
     mut transcript_buffer: HandshakeHashBuffer,
     retryreq: Option<&HelloRetryRequest>,
     key_share: Option<kx::KeyExchange>,
     extra_exts: Vec<ClientExtension>,
     may_send_sct_list: bool,
     suite: Option<SupportedCipherSuite>,
+    session_id_generator: Option<T>,
     mut input: ClientHelloInput,
     cx: &mut ClientContext<'_>,
-) -> NextState {
+) -> NextState
+where
+    T: Fn(&[u8]) -> [u8; 32],
+{
     let config = &input.config;
     let support_tls12 = config.supports_version(ProtocolVersion::TLSv1_2) && !cx.common.is_quic();
     let support_tls13 = config.supports_version(ProtocolVersion::TLSv1_3);
@@ -307,6 +316,31 @@ fn emit_client_hello_for_retry(
     } else {
         None
     };
+
+    // ref: https://github.com/shadow-tls/rustls/blob/c033c22cdbb6b08adf8b35571ee8427c70512d13/rustls/src/client/hs.rs#L365
+    if let Some(generator) = session_id_generator {
+        let mut buffer = Vec::new();
+        match &mut chp.payload {
+            HandshakePayload::ClientHello(c) => {
+                c.session_id = SessionId {
+                    len: 32,
+                    data: [0; 32],
+                };
+            }
+            _ => unreachable!(),
+        }
+        chp.encode(&mut buffer);
+        let session_id = SessionId {
+            len: 32,
+            data: generator(&buffer),
+        };
+        match &mut chp.payload {
+            HandshakePayload::ClientHello(c) => {
+                c.session_id = session_id;
+            }
+            _ => unreachable!(),
+        }
+    }
 
     let ch = Message {
         // "This value MUST be set to 0x0303 for all records generated
@@ -841,13 +875,14 @@ impl ExpectServerHelloOrHelloRetryRequest {
             _ => offered_key_share,
         };
 
-        Ok(emit_client_hello_for_retry(
+        Ok(emit_client_hello_for_retry::<fn(&[u8]) -> [u8; 32]>(
             transcript_buffer,
             Some(hrr),
             Some(key_share),
             self.extra_exts,
             may_send_sct_list,
             Some(cs),
+            None,
             self.next.input,
             cx,
         ))
