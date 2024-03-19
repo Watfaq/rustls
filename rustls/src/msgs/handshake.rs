@@ -115,8 +115,8 @@ impl From<[u8; 32]> for Random {
 
 #[derive(Copy, Clone)]
 pub struct SessionId {
-    len: usize,
-    data: [u8; 32],
+    pub(crate)len: usize,
+    pub(crate)data: [u8; 32],
 }
 
 impl fmt::Debug for SessionId {
@@ -985,7 +985,7 @@ impl ClientHelloPayload {
     pub(crate) fn namedgroups_extension(&self) -> Option<&[NamedGroup]> {
         let ext = self.find_extension(ExtensionType::EllipticCurves)?;
         match *ext {
-            ClientExtension::NamedGroups(ref req) => Some(req),
+            ClientExtension::NamedGroups(ref req) => Some(req.as_slice()),
             _ => None,
         }
     }
@@ -994,7 +994,7 @@ impl ClientHelloPayload {
     pub(crate) fn ecpoints_extension(&self) -> Option<&[ECPointFormat]> {
         let ext = self.find_extension(ExtensionType::ECPointFormats)?;
         match *ext {
-            ClientExtension::EcPointFormats(ref req) => Some(req),
+            ClientExtension::EcPointFormats(ref req) => Some(req.as_slice()),
             _ => None,
         }
     }
@@ -1068,7 +1068,7 @@ impl ClientHelloPayload {
     pub(crate) fn psk_modes(&self) -> Option<&[PSKKeyExchangeMode]> {
         let ext = self.find_extension(ExtensionType::PSKKeyExchangeModes)?;
         match *ext {
-            ClientExtension::PresharedKeyModes(ref psk_modes) => Some(psk_modes),
+            ClientExtension::PresharedKeyModes(ref psk_modes) => Some(psk_modes.as_slice()),
             _ => None,
         }
     }
@@ -1367,7 +1367,7 @@ impl ServerHelloPayload {
     pub(crate) fn ecpoints_extension(&self) -> Option<&[ECPointFormat]> {
         let ext = self.find_extension(ExtensionType::ECPointFormats)?;
         match *ext {
-            ServerExtension::EcPointFormats(ref fmts) => Some(fmts),
+            ServerExtension::EcPointFormats(ref fmts) => Some(fmts.as_slice()),
             _ => None,
         }
     }
