@@ -1,4 +1,4 @@
-use std::fmt;
+use core::fmt;
 
 use crate::enums::ProtocolVersion;
 
@@ -7,11 +7,11 @@ use crate::enums::ProtocolVersion;
 /// All possible instances of this class are provided by the library in
 /// the [`ALL_VERSIONS`] array, as well as individually as [`TLS12`]
 /// and [`TLS13`].
+#[non_exhaustive]
 #[derive(Eq, PartialEq)]
 pub struct SupportedProtocolVersion {
     /// The TLS enumeration naming this version.
     pub version: ProtocolVersion,
-    is_private: (),
 }
 
 impl fmt::Debug for SupportedProtocolVersion {
@@ -24,13 +24,11 @@ impl fmt::Debug for SupportedProtocolVersion {
 #[cfg(feature = "tls12")]
 pub static TLS12: SupportedProtocolVersion = SupportedProtocolVersion {
     version: ProtocolVersion::TLSv1_2,
-    is_private: (),
 };
 
 /// TLS1.3
 pub static TLS13: SupportedProtocolVersion = SupportedProtocolVersion {
     version: ProtocolVersion::TLSv1_3,
-    is_private: (),
 };
 
 /// A list of all the protocol versions supported by rustls.
@@ -47,7 +45,7 @@ pub static ALL_VERSIONS: &[&SupportedProtocolVersion] = &[
 /// versions.
 pub static DEFAULT_VERSIONS: &[&SupportedProtocolVersion] = ALL_VERSIONS;
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub(crate) struct EnabledVersions {
     #[cfg(feature = "tls12")]
     tls12: Option<&'static SupportedProtocolVersion>,

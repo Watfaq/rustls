@@ -1,9 +1,30 @@
 [workspace]
 members = [
+  # CI benchmarks
+  "ci-bench",
+  # Network-based tests
+  "connect-tests",
   # tests and example code
   "examples",
+  # Tests that require OpenSSL
+  "openssl-tests",
+  # example of custom provider
+  "provider-example",
   # the main library and tests
   "rustls",
+  # experimental post-quantum algorithm support
+  "rustls-post-quantum",
+  # rustls cryptography provider integration tests
+  "rustls-provider-test",
+]
+default-members = [
+  "examples",
+  "rustls",
+  "rustls-post-quantum",
 ]
 exclude = ["admin/rustfmt"]
 resolver = "2"
+
+[profile.bench]
+codegen-units = 1
+lto = true

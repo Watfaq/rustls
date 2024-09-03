@@ -1,7 +1,7 @@
-use crate::conn::{ConnectionCommon, SideData};
-
+use core::ops::{Deref, DerefMut};
 use std::io::{IoSlice, Read, Result, Write};
-use std::ops::{Deref, DerefMut};
+
+use crate::conn::{ConnectionCommon, SideData};
 
 /// This type implements `io::Read` and `io::Write`, encapsulating
 /// a Connection `C` and an underlying transport `T`, such as a socket.
@@ -66,7 +66,7 @@ where
     }
 
     #[cfg(read_buf)]
-    fn read_buf(&mut self, cursor: std::io::BorrowedCursor<'_>) -> Result<()> {
+    fn read_buf(&mut self, cursor: core::io::BorrowedCursor<'_>) -> Result<()> {
         self.complete_prior_io()?;
 
         // We call complete_io() in a loop since a single call may read only
@@ -167,6 +167,11 @@ where
     pub fn get_mut(&mut self) -> &mut T {
         &mut self.sock
     }
+
+    /// Extract the `conn` and `sock` parts from the `StreamOwned`
+    pub fn into_parts(self) -> (C, T) {
+        (self.conn, self.sock)
+    }
 }
 
 impl<'a, C, T, S> StreamOwned<C, T>
@@ -194,7 +199,7 @@ where
     }
 
     #[cfg(read_buf)]
-    fn read_buf(&mut self, cursor: std::io::BorrowedCursor<'_>) -> Result<()> {
+    fn read_buf(&mut self, cursor: core::io::BorrowedCursor<'_>) -> Result<()> {
         self.as_stream().read_buf(cursor)
     }
 }
@@ -216,10 +221,11 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::net::TcpStream;
+
     use super::{Stream, StreamOwned};
     use crate::client::ClientConnection;
     use crate::server::ServerConnection;
-    use std::net::TcpStream;
 
     #[test]
     fn stream_can_be_created_for_connection_and_tcpstream() {

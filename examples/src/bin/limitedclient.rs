@@ -1,34 +1,32 @@
-/// limitedclient: This example demonstrates usage of ClientConfig building
-/// so that unused cryptography in rustls can be discarded by the linker.  You can
-/// observe using `nm` that the binary of this program does not contain any AES code.
-use std::sync::Arc;
+//! limitedclient: This example demonstrates usage of ClientConfig building
+//! so that unused cryptography in rustls can be discarded by the linker.  You can
+//! observe using `nm` that the binary of this program does not contain any AES code.
 
 use std::io::{stdout, Read, Write};
 use std::net::TcpStream;
+use std::sync::Arc;
 
-use rustls::OwnedTrustAnchor;
+use rustls::crypto::{aws_lc_rs as provider, CryptoProvider};
 
 fn main() {
-    let mut root_store = rustls::RootCertStore::empty();
-    root_store.add_trust_anchors(
+    let root_store = rustls::RootCertStore::from_iter(
         webpki_roots::TLS_SERVER_ROOTS
             .iter()
-            .map(|ta| {
-                OwnedTrustAnchor::from_subject_spki_name_constraints(
-                    ta.subject,
-                    ta.spki,
-                    ta.name_constraints,
-                )
-            }),
+            .cloned(),
     );
 
-    let config = rustls::ClientConfig::builder()
-        .with_cipher_suites(&[rustls::cipher_suite::TLS13_CHACHA20_POLY1305_SHA256])
-        .with_kx_groups(&[&rustls::kx_group::X25519])
-        .with_protocol_versions(&[&rustls::version::TLS13])
-        .unwrap()
-        .with_root_certificates(root_store)
-        .with_no_client_auth();
+    let config = rustls::ClientConfig::builder_with_provider(
+        CryptoProvider {
+            cipher_suites: vec![provider::cipher_suite::TLS13_CHACHA20_POLY1305_SHA256],
+            kx_groups: vec![provider::kx_group::X25519],
+            ..provider::default_provider()
+        }
+        .into(),
+    )
+    .with_protocol_versions(&[&rustls::version::TLS13])
+    .unwrap()
+    .with_root_certificates(root_store)
+    .with_no_client_auth();
 
     let server_name = "www.rust-lang.org".try_into().unwrap();
     let mut conn = rustls::ClientConnection::new(Arc::new(config), server_name).unwrap();

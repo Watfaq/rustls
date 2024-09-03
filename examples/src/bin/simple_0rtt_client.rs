@@ -1,14 +1,23 @@
-use std::sync::Arc;
+//! This is an example client that uses rustls for TLS, and sends early 0-RTT data.
+//!
+//! You may set the `SSLKEYLOGFILE` env var when using this example to write a
+//! log file with key material (insecure) for debugging purposes. See [`rustls::KeyLog`]
+//! for more information.
+//!
+//! Note that `unwrap()` is used to deal with networking errors; this is not something
+//! that is sensible outside of example code.
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
+use std::sync::Arc;
 
-use rustls::{OwnedTrustAnchor, RootCertStore};
+use rustls::pki_types::ServerName;
+use rustls::RootCertStore;
 
 fn start_connection(config: &Arc<rustls::ClientConfig>, domain_name: &str) {
-    let server_name = domain_name
-        .try_into()
-        .expect("invalid DNS name");
+    let server_name = ServerName::try_from(domain_name)
+        .expect("invalid DNS name")
+        .to_owned();
     let mut conn = rustls::ClientConnection::new(Arc::clone(config), server_name).unwrap();
     let mut sock = TcpStream::connect(format!("{}:443", domain_name)).unwrap();
     sock.set_nodelay(true).unwrap();
@@ -57,23 +66,18 @@ fn start_connection(config: &Arc<rustls::ClientConfig>, domain_name: &str) {
 fn main() {
     env_logger::init();
 
-    let mut root_store = RootCertStore::empty();
-    root_store.add_trust_anchors(
+    let root_store = RootCertStore::from_iter(
         webpki_roots::TLS_SERVER_ROOTS
             .iter()
-            .map(|ta| {
-                OwnedTrustAnchor::from_subject_spki_name_constraints(
-                    ta.subject,
-                    ta.spki,
-                    ta.name_constraints,
-                )
-            }),
+            .cloned(),
     );
 
     let mut config = rustls::ClientConfig::builder()
-        .with_safe_defaults()
         .with_root_certificates(root_store)
         .with_no_client_auth();
+
+    // Allow using SSLKEYLOGFILE.
+    config.key_log = Arc::new(rustls::KeyLogFile::new());
 
     // Enable early data.
     config.enable_early_data = true;

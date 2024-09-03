@@ -5,9 +5,26 @@
 
 set -xe
 
-if [ "x$USE_EXISTING_BOGO_SHIM" = "x" ] ; then
-  cargo build --example bogo_shim --features dangerous_configuration,quic
-fi
+case ${BOGO_SHIM_PROVIDER:-aws-lc-rs} in
+  ring)
+      cargo build -p rustls --example bogo_shim $(../admin/all-features-except aws-lc-rs,aws_lc_rs,fips rustls)
+      cpp -P -DRING config.json.in > config.json
+      ;;
+  aws-lc-rs)
+      cargo build -p rustls --example bogo_shim $(../admin/all-features-except ring,fips rustls)
+      cpp -P -DAWS_LC_RS config.json.in > config.json
+      ;;
+  aws-lc-rs-fips)
+      cargo build -p rustls --example bogo_shim $(../admin/all-features-except ring rustls)
+      cpp -P -DAWS_LC_RS -DFIPS config.json.in > config.json
+      ;;
+  existing)
+      ;;
+  *)
+      echo "unsupported BOGO_SHIM_PROVIDER: supported are (ring|aws-lc-rs|existing)"
+      exit 1
+      ;;
+esac
 
 if [ ! -e bogo/ssl/test/runner/runner.test ] ; then
   ./fetch-and-build

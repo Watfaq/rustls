@@ -1,26 +1,37 @@
-use std::sync::Arc;
-
-use mio::net::{TcpListener, TcpStream};
-
-#[macro_use]
-extern crate log;
+//! This is an example server that uses rustls for TLS, and [mio] for I/O.
+//!
+//! It uses command line flags to demonstrate configuring a TLS server that may:
+//!  * Specify supported TLS protocol versions
+//!  * Customize cipher suite selection
+//!  * Perform optional or mandatory client certificate authentication
+//!  * Check client certificates for revocation status with CRLs
+//!  * Support session tickets
+//!  * Staple an OCSP response
+//!
+//! See [`USAGE`] for more details.
+//!
+//! You may set the `SSLKEYLOGFILE` env var when using this example to write a
+//! log file with key material (insecure) for debugging purposes. See [`rustls::KeyLog`]
+//! for more information.
+//!
+//! Note that `unwrap()` is used to deal with networking errors; this is not something
+//! that is sensible outside of example code.
+//!
+//! [mio]: https://docs.rs/mio/latest/mio/
 
 use std::collections::HashMap;
-use std::fs;
-use std::io;
-use std::io::{BufReader, Read, Write};
-use std::net;
-
-#[macro_use]
-extern crate serde_derive;
+use std::io::{self, BufReader, Read, Write};
+use std::sync::Arc;
+use std::{fs, net};
 
 use docopt::Docopt;
-
-use rustls::server::{
-    AllowAnyAnonymousOrAuthenticatedClient, AllowAnyAuthenticatedClient, NoClientAuth,
-    UnparsedCertRevocationList,
-};
-use rustls::{self, RootCertStore};
+use log::{debug, error};
+use mio::net::{TcpListener, TcpStream};
+use rustls::crypto::{aws_lc_rs as provider, CryptoProvider};
+use rustls::pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer};
+use rustls::server::WebPkiClientVerifier;
+use rustls::RootCertStore;
+use serde::Deserialize;
 
 // Token for our listening socket.
 const LISTENER: mio::Token = mio::Token(0);
@@ -467,7 +478,7 @@ struct Args {
 }
 
 fn find_suite(name: &str) -> Option<rustls::SupportedCipherSuite> {
-    for suite in rustls::ALL_CIPHER_SUITES {
+    for suite in provider::ALL_CIPHER_SUITES {
         let sname = format!("{:?}", suite.suite()).to_lowercase();
 
         if sname == name.to_string().to_lowercase() {
@@ -511,25 +522,23 @@ fn lookup_versions(versions: &[String]) -> Vec<&'static rustls::SupportedProtoco
     out
 }
 
-fn load_certs(filename: &str) -> Vec<rustls::Certificate> {
+fn load_certs(filename: &str) -> Vec<CertificateDer<'static>> {
     let certfile = fs::File::open(filename).expect("cannot open certificate file");
     let mut reader = BufReader::new(certfile);
     rustls_pemfile::certs(&mut reader)
-        .unwrap()
-        .iter()
-        .map(|v| rustls::Certificate(v.clone()))
+        .map(|result| result.unwrap())
         .collect()
 }
 
-fn load_private_key(filename: &str) -> rustls::PrivateKey {
+fn load_private_key(filename: &str) -> PrivateKeyDer<'static> {
     let keyfile = fs::File::open(filename).expect("cannot open private key file");
     let mut reader = BufReader::new(keyfile);
 
     loop {
         match rustls_pemfile::read_one(&mut reader).expect("cannot parse private key .pem file") {
-            Some(rustls_pemfile::Item::RSAKey(key)) => return rustls::PrivateKey(key),
-            Some(rustls_pemfile::Item::PKCS8Key(key)) => return rustls::PrivateKey(key),
-            Some(rustls_pemfile::Item::ECKey(key)) => return rustls::PrivateKey(key),
+            Some(rustls_pemfile::Item::Pkcs1Key(key)) => return key.into(),
+            Some(rustls_pemfile::Item::Pkcs8Key(key)) => return key.into(),
+            Some(rustls_pemfile::Item::Sec1Key(key)) => return key.into(),
             None => break,
             _ => {}
         }
@@ -554,7 +563,7 @@ fn load_ocsp(filename: &Option<String>) -> Vec<u8> {
     ret
 }
 
-fn load_crls(filenames: &[String]) -> Vec<UnparsedCertRevocationList> {
+fn load_crls(filenames: &[String]) -> Vec<CertificateRevocationListDer<'static>> {
     filenames
         .iter()
         .map(|filename| {
@@ -563,7 +572,7 @@ fn load_crls(filenames: &[String]) -> Vec<UnparsedCertRevocationList> {
                 .expect("cannot open CRL file")
                 .read_to_end(&mut der)
                 .unwrap();
-            UnparsedCertRevocationList(der)
+            CertificateRevocationListDer::from(der)
         })
         .collect()
 }
@@ -573,28 +582,29 @@ fn make_config(args: &Args) -> Arc<rustls::ServerConfig> {
         let roots = load_certs(args.flag_auth.as_ref().unwrap());
         let mut client_auth_roots = RootCertStore::empty();
         for root in roots {
-            client_auth_roots.add(&root).unwrap();
+            client_auth_roots.add(root).unwrap();
         }
         let crls = load_crls(&args.flag_crl);
         if args.flag_require_auth {
-            AllowAnyAuthenticatedClient::new(client_auth_roots)
+            WebPkiClientVerifier::builder(client_auth_roots.into())
                 .with_crls(crls)
-                .expect("invalid CRLs")
-                .boxed()
+                .build()
+                .unwrap()
         } else {
-            AllowAnyAnonymousOrAuthenticatedClient::new(client_auth_roots)
+            WebPkiClientVerifier::builder(client_auth_roots.into())
                 .with_crls(crls)
-                .expect("invalid CRLs")
-                .boxed()
+                .allow_unauthenticated()
+                .build()
+                .unwrap()
         }
     } else {
-        NoClientAuth::boxed()
+        WebPkiClientVerifier::no_client_auth()
     };
 
     let suites = if !args.flag_suite.is_empty() {
         lookup_suites(&args.flag_suite)
     } else {
-        rustls::ALL_CIPHER_SUITES.to_vec()
+        provider::ALL_CIPHER_SUITES.to_vec()
     };
 
     let versions = if !args.flag_protover.is_empty() {
@@ -615,14 +625,18 @@ fn make_config(args: &Args) -> Arc<rustls::ServerConfig> {
     );
     let ocsp = load_ocsp(&args.flag_ocsp);
 
-    let mut config = rustls::ServerConfig::builder()
-        .with_cipher_suites(&suites)
-        .with_safe_default_kx_groups()
-        .with_protocol_versions(&versions)
-        .expect("inconsistent cipher-suites/versions specified")
-        .with_client_cert_verifier(client_auth)
-        .with_single_cert_with_ocsp_and_sct(certs, privkey, ocsp, vec![])
-        .expect("bad certificates/private key");
+    let mut config = rustls::ServerConfig::builder_with_provider(
+        CryptoProvider {
+            cipher_suites: suites,
+            ..provider::default_provider()
+        }
+        .into(),
+    )
+    .with_protocol_versions(&versions)
+    .expect("inconsistent cipher-suites/versions specified")
+    .with_client_cert_verifier(client_auth)
+    .with_single_cert_with_ocsp(certs, privkey, ocsp)
+    .expect("bad certificates/private key");
 
     config.key_log = Arc::new(rustls::KeyLogFile::new());
 
@@ -631,7 +645,7 @@ fn make_config(args: &Args) -> Arc<rustls::ServerConfig> {
     }
 
     if args.flag_tickets {
-        config.ticketer = rustls::Ticketer::new().unwrap();
+        config.ticketer = provider::Ticketer::new().unwrap();
     }
 
     config.alpn_protocols = args
@@ -663,12 +677,13 @@ fn main() {
         return;
     }
 
-    let mut addr: net::SocketAddr = "0.0.0.0:443".parse().unwrap();
+    let mut addr: net::SocketAddr = "[::]:443".parse().unwrap();
     addr.set_port(args.flag_port.unwrap_or(443));
 
     let config = make_config(&args);
 
     let mut listener = TcpListener::bind(addr).expect("cannot listen on port");
+    println!("listening on {addr}");
     let mut poll = mio::Poll::new().unwrap();
     poll.registry()
         .register(&mut listener, LISTENER, mio::Interest::READABLE)
@@ -686,7 +701,14 @@ fn main() {
 
     let mut events = mio::Events::with_capacity(256);
     loop {
-        poll.poll(&mut events, None).unwrap();
+        match poll.poll(&mut events, None) {
+            Ok(_) => {}
+            // Polling can be interrupted (e.g. by a debugger) - retry if so.
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => {
+                panic!("poll failed: {:?}", e)
+            }
+        }
 
         for event in events.iter() {
             match event.token() {
