@@ -173,7 +173,7 @@ mod connection {
         pub(super) has_seen_eof: bool,
     }
 
-    impl<'a> Reader<'a> {
+    impl Reader<'_> {
         /// Check the connection's state if no bytes are available for reading.
         fn check_no_bytes_state(&self) -> io::Result<()> {
             match (self.has_received_close_notify, self.has_seen_eof) {
@@ -191,7 +191,7 @@ mod connection {
         }
     }
 
-    impl<'a> io::Read for Reader<'a> {
+    impl io::Read for Reader<'_> {
         /// Obtain plaintext data received from the peer over this TLS connection.
         ///
         /// If the peer closes the TLS session cleanly, this returns `Ok(0)`  once all
@@ -276,7 +276,7 @@ https://docs.rs/rustls/latest/rustls/manual/_03_howto/index.html#unexpected-eof"
         }
     }
 
-    impl<'a> io::Write for Writer<'a> {
+    impl io::Write for Writer<'_> {
         /// Send the plaintext `buf` to the peer, encrypting
         /// and authenticating it.  Once this function succeeds
         /// you should call [`Connection::write_tls`] which will output the
@@ -654,7 +654,7 @@ impl<Data> ConnectionCommon<Data> {
     /// This is a shortcut to the `process_new_packets()` -> `process_msg()` ->
     /// `process_handshake_messages()` path, specialized for the first handshake message.
     pub(crate) fn first_handshake_message(&mut self) -> Result<Option<Message<'static>>, Error> {
-        let mut buffer_progress = BufferProgress::default();
+        let mut buffer_progress = self.core.hs_deframer.progress();
 
         let res = self
             .core
@@ -827,8 +827,7 @@ impl<Data> ConnectionCore<Data> {
             }
         };
 
-        let mut buffer_progress = BufferProgress::default();
-        buffer_progress.add_processed(deframer_buffer.processed);
+        let mut buffer_progress = self.hs_deframer.progress();
 
         loop {
             let res = self.deframe(
@@ -846,9 +845,8 @@ impl<Data> ConnectionCore<Data> {
                 }
             };
 
-            let msg = match opt_msg {
-                Some(msg) => msg,
-                None => break,
+            let Some(msg) = opt_msg else {
+                break;
             };
 
             match self.process_msg(msg, state, Some(sendable_plaintext)) {
@@ -874,7 +872,6 @@ impl<Data> ConnectionCore<Data> {
             deframer_buffer.discard(buffer_progress.take_discard());
         }
 
-        deframer_buffer.processed = buffer_progress.processed();
         deframer_buffer.discard(buffer_progress.take_discard());
         self.state = Ok(state);
         Ok(self.common_state.current_io_state())

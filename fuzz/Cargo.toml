@@ -9,9 +9,10 @@ edition = "2021"
 cargo-fuzz = true
 
 [dependencies]
+env_logger = "0.11"
 libfuzzer-sys = { git = "https://github.com/rust-fuzz/libfuzzer-sys.git" }
-pki-types = { package = "rustls-pki-types", version = "1" }
-rustls = { path = "../rustls" }
+rustls = { path = "../rustls", default-features = false, features = ["std", "tls12", "custom-provider"]}
+rustls-fuzzing-provider = { path = "../rustls-fuzzing-provider" }
 
 # Prevent this from interfering with workspaces
 [workspace]
@@ -44,3 +45,7 @@ path = "fuzzers/server.rs"
 [[bin]]
 name = "server_name"
 path = "fuzzers/server_name.rs"
+
+[[bin]]
+name = "unbuffered"
+path = "fuzzers/unbuffered.rs"

@@ -188,7 +188,9 @@ impl ClientCertVerifierBuilder {
 }
 
 /// A client certificate verifier that uses the `webpki` crate[^1] to perform client certificate
-/// validation. It must be created via the [`WebPkiClientVerifier::builder()`] or
+/// validation.
+///
+/// It must be created via the [`WebPkiClientVerifier::builder()`] or
 /// [`WebPkiClientVerifier::builder_with_provider()`] functions.
 ///
 /// Once built, the provided `Arc<dyn ClientCertVerifier>` can be used with a Rustls [`ServerConfig`]
@@ -426,26 +428,24 @@ pub(crate) enum AnonymousClientPolicy {
     Deny,
 }
 
-test_for_each_provider! {
-    use super::WebPkiClientVerifier;
-    use crate::server::VerifierBuilderError;
-    use crate::RootCertStore;
-
-    use pki_types::{CertificateDer, CertificateRevocationListDer};
-
+#[cfg(test)]
+#[macro_rules_attribute::apply(test_for_each_provider)]
+mod tests {
     use std::prelude::v1::*;
     use std::sync::Arc;
-    use std::{vec, format, println};
+    use std::{format, println, vec};
+
+    use pki_types::pem::PemObject;
+    use pki_types::{CertificateDer, CertificateRevocationListDer};
+
+    use super::{provider, WebPkiClientVerifier};
+    use crate::server::VerifierBuilderError;
+    use crate::RootCertStore;
 
     fn load_crls(crls_der: &[&[u8]]) -> Vec<CertificateRevocationListDer<'static>> {
         crls_der
             .iter()
-            .map(|pem_bytes| {
-                rustls_pemfile::crls(&mut &pem_bytes[..])
-                    .next()
-                    .unwrap()
-                    .unwrap()
-            })
+            .map(|pem_bytes| CertificateRevocationListDer::from_pem_slice(pem_bytes).unwrap())
             .collect()
     }
 

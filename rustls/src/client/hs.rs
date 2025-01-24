@@ -17,7 +17,9 @@ use crate::client::client_conn::ClientConnectionData;
 use crate::client::common::ClientHelloDetails;
 use crate::client::ech::EchState;
 use crate::client::{tls13, ClientConfig, EchMode, EchStatus};
-use crate::common_state::{CommonState, HandshakeKind, KxState, State};
+use crate::common_state::{
+    CommonState, HandshakeKind, KxState, RawKeyNegotationResult, RawKeyNegotiationParams, State,
+};
 use crate::conn::ConnectionRandoms;
 use crate::crypto::{ActiveKeyExchange, KeyExchangeAlgorithm};
 use crate::enums::{AlertDescription, CipherSuite, ContentType, HandshakeType, ProtocolVersion};
@@ -25,8 +27,9 @@ use crate::error::{Error, PeerIncompatible, PeerMisbehaved};
 use crate::hash_hs::HandshakeHashBuffer;
 use crate::log::{debug, trace};
 use crate::msgs::base::Payload;
-use crate::msgs::codec::Codec;
-use crate::msgs::enums::{Compression, ECPointFormat, ExtensionType, PSKKeyExchangeMode};
+use crate::msgs::enums::{
+    CertificateType, Compression, ECPointFormat, ExtensionType, PSKKeyExchangeMode,
+};
 use crate::msgs::handshake::{
     CertificateStatusRequest, ClientExtension, ClientHelloPayload, ClientSessionTicket,
     ConvertProtocolNameList, HandshakeMessagePayload, HandshakePayload, HasServerExtensions,
@@ -143,7 +146,7 @@ where
                 // If we have a ticket, we use the sessionid as a signal that
                 // we're  doing an abbreviated handshake.  See section 3.4 in
                 // RFC5077.
-                if !inner.ticket().is_empty() {
+                if !inner.ticket().0.is_empty() {
                     inner.session_id = SessionId::random(config.provider.secure_random)?;
                 }
                 Some(inner.session_id)
@@ -264,16 +267,22 @@ where
     // should be unreachable thanks to config builder
     assert!(!supported_versions.is_empty());
 
+    // offer groups which are usable for any offered version
+    let offered_groups = config
+        .provider
+        .kx_groups
+        .iter()
+        .filter(|skxg| {
+            supported_versions
+                .iter()
+                .any(|v| skxg.usable_for_version(*v))
+        })
+        .map(|skxg| skxg.name())
+        .collect();
+
     let mut exts = vec![
         ClientExtension::SupportedVersions(supported_versions),
-        ClientExtension::NamedGroups(
-            config
-                .provider
-                .kx_groups
-                .iter()
-                .map(|skxg| skxg.name())
-                .collect(),
-        ),
+        ClientExtension::NamedGroups(offered_groups),
         ClientExtension::SignatureAlgorithms(
             config
                 .verifier
@@ -282,6 +291,12 @@ where
         ClientExtension::ExtendedMasterSecretRequest,
         ClientExtension::CertificateStatusRequest(CertificateStatusRequest::build_ocsp()),
     ];
+
+    if support_tls13 {
+        if let Some(cas_extension) = config.verifier.root_hint_subjects() {
+            exts.push(ClientExtension::AuthorityNames(cas_extension.to_owned()));
+        }
+    }
 
     // Send the ECPointFormat extension only if we are proposing ECDHE
     if config
@@ -316,8 +331,26 @@ where
 
     if let Some(key_share) = &key_share {
         debug_assert!(support_tls13);
-        let key_share = KeyShareEntry::new(key_share.group(), key_share.pub_key());
-        exts.push(ClientExtension::KeyShare(vec![key_share]));
+        let mut shares = vec![KeyShareEntry::new(key_share.group(), key_share.pub_key())];
+
+        if retryreq.is_none() {
+            // Only for the initial client hello, see if we can send a second KeyShare
+            // for "free".  We only do this if the same algorithm is also supported
+            // separately by our provider for this version (`find_kx_group` looks that up).
+            if let Some((component_group, component_share)) =
+                key_share
+                    .hybrid_component()
+                    .filter(|(group, _)| {
+                        config
+                            .find_kx_group(*group, ProtocolVersion::TLSv1_3)
+                            .is_some()
+                    })
+            {
+                shares.push(KeyShareEntry::new(component_group, component_share));
+            }
+        }
+
+        exts.push(ClientExtension::KeyShare(shares));
     }
 
     if let Some(cookie) = retryreq.and_then(HelloRetryRequest::cookie) {
@@ -355,6 +388,24 @@ where
         false
     };
 
+    if config
+        .client_auth_cert_resolver
+        .only_raw_public_keys()
+    {
+        exts.push(ClientExtension::ClientCertTypes(vec![
+            CertificateType::RawPublicKey,
+        ]));
+    }
+
+    if config
+        .verifier
+        .requires_raw_public_keys()
+    {
+        exts.push(ClientExtension::ServerCertTypes(vec![
+            CertificateType::RawPublicKey,
+        ]));
+    }
+
     // Extra extensions must be placed before the PSK extension
     exts.extend(extra_exts.iter().cloned());
 
@@ -383,7 +434,7 @@ where
             _ => {}
         };
 
-        let seed = (input.hello.extension_order_seed as u32) << 16
+        let seed = ((input.hello.extension_order_seed as u32) << 16)
             | (u16::from(new_ext.ext_type()) as u32);
         match low_quality_integer_hash(seed) {
             u32::MAX => 0,
@@ -603,8 +654,8 @@ fn prepare_resumption<'a>(
     let resuming = match resuming {
         Some(resuming) if !resuming.ticket().is_empty() => resuming,
         _ => {
-            if config.supports_version(ProtocolVersion::TLSv1_3)
-                || config.resumption.tls12_resumption == Tls12Resumption::SessionIdOrTickets
+            if config.supports_version(ProtocolVersion::TLSv1_2)
+                && config.resumption.tls12_resumption == Tls12Resumption::SessionIdOrTickets
             {
                 // If we don't have a ticket, request one.
                 exts.push(ClientExtension::SessionTicket(ClientSessionTicket::Request));
@@ -613,19 +664,16 @@ fn prepare_resumption<'a>(
         }
     };
 
-    let tls13 = match resuming.map(|csv| csv.tls13()) {
-        Some(tls13) => tls13,
-        None => {
-            // TLS 1.2; send the ticket if we have support this protocol version
-            if config.supports_version(ProtocolVersion::TLSv1_2)
-                && config.resumption.tls12_resumption == Tls12Resumption::SessionIdOrTickets
-            {
-                exts.push(ClientExtension::SessionTicket(ClientSessionTicket::Offer(
-                    Payload::new(resuming.ticket()),
-                )));
-            }
-            return None; // TLS 1.2, so nothing to return here
+    let Some(tls13) = resuming.map(|csv| csv.tls13()) else {
+        // TLS 1.2; send the ticket if we have support this protocol version
+        if config.supports_version(ProtocolVersion::TLSv1_2)
+            && config.resumption.tls12_resumption == Tls12Resumption::SessionIdOrTickets
+        {
+            exts.push(ClientExtension::SessionTicket(ClientSessionTicket::Offer(
+                Payload::new(resuming.ticket()),
+            )));
         }
+        return None; // TLS 1.2, so nothing to return here
     };
 
     if !config.supports_version(ProtocolVersion::TLSv1_3) {
@@ -689,6 +737,52 @@ pub(super) fn process_alpn_protocol(
             .map(|v| bs_debug::BsDebug(v))
     );
     Ok(())
+}
+
+pub(super) fn process_server_cert_type_extension(
+    common: &mut CommonState,
+    config: &ClientConfig,
+    server_cert_extension: Option<&CertificateType>,
+) -> Result<(), Error> {
+    let requires_server_rpk = config
+        .verifier
+        .requires_raw_public_keys();
+    let server_offers_rpk = matches!(server_cert_extension, Some(CertificateType::RawPublicKey));
+
+    let raw_key_negotation_params = RawKeyNegotiationParams {
+        peer_supports_raw_key: server_offers_rpk,
+        local_expects_raw_key: requires_server_rpk,
+        extension_type: ExtensionType::ServerCertificateType,
+    };
+    match raw_key_negotation_params.validate_raw_key_negotiation() {
+        RawKeyNegotationResult::Err(err) => {
+            Err(common.send_fatal_alert(AlertDescription::HandshakeFailure, err))
+        }
+        _ => Ok(()),
+    }
+}
+
+pub(super) fn process_client_cert_type_extension(
+    common: &mut CommonState,
+    config: &ClientConfig,
+    client_cert_extension: Option<&CertificateType>,
+) -> Result<(), Error> {
+    let requires_client_rpk = config
+        .client_auth_cert_resolver
+        .only_raw_public_keys();
+    let server_allows_rpk = matches!(client_cert_extension, Some(CertificateType::RawPublicKey));
+
+    let raw_key_negotation_params = RawKeyNegotiationParams {
+        peer_supports_raw_key: server_allows_rpk,
+        local_expects_raw_key: requires_client_rpk,
+        extension_type: ExtensionType::ClientCertificateType,
+    };
+    match raw_key_negotation_params.validate_raw_key_negotiation() {
+        RawKeyNegotationResult::Err(err) => {
+            Err(common.send_fatal_alert(AlertDescription::HandshakeFailure, err))
+        }
+        _ => Ok(()),
+    }
 }
 
 impl State<ClientConnectionData> for ExpectServerHello {
@@ -1012,16 +1106,13 @@ impl ExpectServerHelloOrHelloRetryRequest {
 
         // Or asks us to use a ciphersuite we didn't offer.
         let config = &self.next.input.config;
-        let cs = match config.find_cipher_suite(hrr.cipher_suite) {
-            Some(cs) => cs,
-            None => {
-                return Err({
-                    cx.common.send_fatal_alert(
-                        AlertDescription::IllegalParameter,
-                        PeerMisbehaved::IllegalHelloRetryRequestWithUnofferedCipherSuite,
-                    )
-                });
-            }
+        let Some(cs) = config.find_cipher_suite(hrr.cipher_suite) else {
+            return Err({
+                cx.common.send_fatal_alert(
+                    AlertDescription::IllegalParameter,
+                    PeerMisbehaved::IllegalHelloRetryRequestWithUnofferedCipherSuite,
+                )
+            });
         };
 
         // Or offers ECH related extensions when we didn't offer ECH.
@@ -1075,14 +1166,11 @@ impl ExpectServerHelloOrHelloRetryRequest {
 
         let key_share = match req_group {
             Some(group) if group != offered_key_share.group() => {
-                let skxg = match config.find_kx_group(group) {
-                    Some(skxg) => skxg,
-                    None => {
-                        return Err(cx.common.send_fatal_alert(
-                            AlertDescription::IllegalParameter,
-                            PeerMisbehaved::IllegalHelloRetryRequestWithUnofferedNamedGroup,
-                        ));
-                    }
+                let Some(skxg) = config.find_kx_group(group, ProtocolVersion::TLSv1_3) else {
+                    return Err(cx.common.send_fatal_alert(
+                        AlertDescription::IllegalParameter,
+                        PeerMisbehaved::IllegalHelloRetryRequestWithUnofferedNamedGroup,
+                    ));
                 };
 
                 cx.common.kx_state = KxState::Start(skxg);

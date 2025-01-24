@@ -30,6 +30,49 @@ fn tls12_handshake() {
             "Ok(EncodeTlsData)",
             "Ok(TransmitTlsData)",
             "Ok(BlockedHandshake)",
+            "Ok(EncodeTlsData)",
+            "Ok(EncodeTlsData)",
+            "Ok(EncodeTlsData)",
+            "Ok(TransmitTlsData)",
+            "Ok(BlockedHandshake)",
+            "Ok(BlockedHandshake)",
+            "Ok(WriteTraffic)"
+        ],
+        "client transcript mismatch"
+    );
+    assert_eq!(
+        outcome.server_transcript,
+        vec![
+            "Ok(BlockedHandshake)",
+            "Ok(EncodeTlsData)",
+            "Ok(TransmitTlsData)",
+            "Ok(BlockedHandshake)",
+            "Ok(BlockedHandshake)",
+            "Ok(BlockedHandshake)",
+            "Ok(EncodeTlsData)",
+            "Ok(EncodeTlsData)",
+            "Ok(TransmitTlsData)",
+            "Ok(WriteTraffic)"
+        ],
+        "server transcript mismatch"
+    );
+}
+
+#[test]
+fn tls12_handshake_fragmented() {
+    let outcome = handshake_config(&rustls::version::TLS12, |client, server| {
+        client.max_fragment_size = Some(512);
+        client.cert_decompressors = vec![];
+        server.max_fragment_size = Some(512);
+    });
+    assert_eq!(
+        outcome.client_transcript,
+        vec![
+            "Ok(EncodeTlsData)",
+            "Ok(TransmitTlsData)",
+            "Ok(BlockedHandshake)",
+            "Ok(BlockedHandshake)",
+            "Ok(BlockedHandshake)",
             "Ok(BlockedHandshake)",
             "Ok(BlockedHandshake)",
             "Ok(BlockedHandshake)",
@@ -47,6 +90,8 @@ fn tls12_handshake() {
         outcome.server_transcript,
         vec![
             "Ok(BlockedHandshake)",
+            "Ok(EncodeTlsData)",
+            "Ok(EncodeTlsData)",
             "Ok(EncodeTlsData)",
             "Ok(EncodeTlsData)",
             "Ok(EncodeTlsData)",
@@ -75,14 +120,52 @@ fn tls13_handshake() {
             "Ok(BlockedHandshake)",
             "Ok(EncodeTlsData)",
             "Ok(TransmitTlsData)",
+            "Ok(EncodeTlsData)",
+            "Ok(TransmitTlsData)",
+            "Ok(WriteTraffic)",
+            "Ok(WriteTraffic)"
+        ],
+        "client transcript mismatch"
+    );
+    assert_eq!(
+        outcome.server_transcript,
+        vec![
+            "Ok(BlockedHandshake)",
+            "Ok(EncodeTlsData)",
+            "Ok(EncodeTlsData)",
+            "Ok(EncodeTlsData)",
+            "Ok(TransmitTlsData)",
+            "Ok(BlockedHandshake)",
+            "Ok(EncodeTlsData)",
+            "Ok(TransmitTlsData)",
+            "Ok(WriteTraffic)"
+        ],
+        "server transcript mismatch"
+    );
+}
+
+#[test]
+fn tls13_handshake_fragmented() {
+    let outcome = handshake_config(&rustls::version::TLS13, |client, server| {
+        client.max_fragment_size = Some(512);
+        client.cert_decompressors = vec![];
+        server.max_fragment_size = Some(512);
+    });
+    assert_eq!(
+        outcome.client_transcript,
+        vec![
+            "Ok(EncodeTlsData)",
+            "Ok(TransmitTlsData)",
+            "Ok(BlockedHandshake)",
+            "Ok(EncodeTlsData)",
+            "Ok(TransmitTlsData)",
+            "Ok(BlockedHandshake)",
+            "Ok(BlockedHandshake)",
             "Ok(BlockedHandshake)",
             "Ok(BlockedHandshake)",
             "Ok(BlockedHandshake)",
             "Ok(EncodeTlsData)",
             "Ok(TransmitTlsData)",
-            "Ok(WriteTraffic)",
-            "Ok(WriteTraffic)",
-            "Ok(WriteTraffic)",
             "Ok(WriteTraffic)",
             "Ok(WriteTraffic)"
         ],
@@ -98,11 +181,10 @@ fn tls13_handshake() {
             "Ok(EncodeTlsData)",
             "Ok(EncodeTlsData)",
             "Ok(EncodeTlsData)",
+            "Ok(EncodeTlsData)",
+            "Ok(EncodeTlsData)",
             "Ok(TransmitTlsData)",
             "Ok(BlockedHandshake)",
-            "Ok(EncodeTlsData)",
-            "Ok(EncodeTlsData)",
-            "Ok(EncodeTlsData)",
             "Ok(EncodeTlsData)",
             "Ok(TransmitTlsData)",
             "Ok(WriteTraffic)"
@@ -112,8 +194,16 @@ fn tls13_handshake() {
 }
 
 fn handshake(version: &'static rustls::SupportedProtocolVersion) -> Outcome {
-    let server_config = make_server_config_with_versions(KeyType::Rsa2048, &[version]);
-    let client_config = make_client_config(KeyType::Rsa2048);
+    handshake_config(version, |_, _| ())
+}
+
+fn handshake_config(
+    version: &'static rustls::SupportedProtocolVersion,
+    editor: impl Fn(&mut ClientConfig, &mut ServerConfig),
+) -> Outcome {
+    let mut server_config = make_server_config_with_versions(KeyType::Rsa2048, &[version]);
+    let mut client_config = make_client_config(KeyType::Rsa2048);
+    editor(&mut client_config, &mut server_config);
 
     run(
         Arc::new(client_config),
@@ -227,13 +317,9 @@ fn early_data() {
             "Ok(TransmitTlsData)",
             "Ok(BlockedHandshake)",
             "Ok(BlockedHandshake)",
-            "Ok(BlockedHandshake)",
             "Ok(EncodeTlsData)",
             "Ok(EncodeTlsData)",
             "Ok(TransmitTlsData)",
-            "Ok(WriteTraffic)",
-            "Ok(WriteTraffic)",
-            "Ok(WriteTraffic)",
             "Ok(WriteTraffic)",
             "Ok(WriteTraffic)"
         ]
@@ -245,13 +331,9 @@ fn early_data() {
             "Ok(EncodeTlsData)",
             "Ok(EncodeTlsData)",
             "Ok(EncodeTlsData)",
-            "Ok(EncodeTlsData)",
             "Ok(ReadEarlyData)",
             "Ok(TransmitTlsData)",
             "Ok(BlockedHandshake)",
-            "Ok(EncodeTlsData)",
-            "Ok(EncodeTlsData)",
-            "Ok(EncodeTlsData)",
             "Ok(EncodeTlsData)",
             "Ok(TransmitTlsData)",
             "Ok(WriteTraffic)"
@@ -806,12 +888,14 @@ fn tls13_packed_handshake() {
     }
 
     // regression test for https://github.com/rustls/rustls/issues/2040
-    let client_config = finish_client_config(
-        KeyType::Rsa2048,
-        ClientConfig::builder_with_provider(unsafe_plaintext_crypto_provider())
-            .with_safe_default_protocol_versions()
-            .unwrap(),
-    );
+    let client_config = ClientConfig::builder_with_provider(unsafe_plaintext_crypto_provider())
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(MockServerVerifier::rejects_certificate(
+            CertificateError::UnknownIssuer.into(),
+        )))
+        .with_no_client_auth();
 
     let mut client =
         UnbufferedClientConnection::new(Arc::new(client_config), server_name("localhost")).unwrap();
@@ -1322,7 +1406,7 @@ fn server_receives_incorrect_first_handshake_message() {
     assert_eq!(discard, junk_buffer_len);
     assert_eq!(
         format!("{state:?}"),
-        "Err(InappropriateHandshakeMessage { expect_types: [ClientHello], got_type: Unknown(255) })"
+        "Err(InappropriateHandshakeMessage { expect_types: [ClientHello], got_type: HandshakeType(0xff) })"
     );
 
     let UnbufferedStatus { discard, state } = server.process_tls_records(&mut []);
