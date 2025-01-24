@@ -27,6 +27,7 @@ use crate::error::{Error, PeerIncompatible, PeerMisbehaved};
 use crate::hash_hs::HandshakeHashBuffer;
 use crate::log::{debug, trace};
 use crate::msgs::base::Payload;
+use crate::msgs::codec::Codec;
 use crate::msgs::enums::{
     CertificateType, Compression, ECPointFormat, ExtensionType, PSKKeyExchangeMode,
 };
@@ -132,7 +133,7 @@ where
             // If we have a ticket, we use the sessionid as a signal that
             // we're  doing an abbreviated handshake.  See section 3.4 in
             // RFC5077.
-            if !inner.ticket().is_empty() {
+            if !inner.ticket().0.is_empty() {
                 inner.session_id = SessionId::random(config.provider.secure_random)?;
             }
             session_id = Some(inner.session_id);
