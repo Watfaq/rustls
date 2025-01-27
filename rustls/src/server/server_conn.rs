@@ -23,6 +23,7 @@ use crate::enums::{CipherSuite, ProtocolVersion, SignatureScheme};
 use crate::error::Error;
 use crate::log::trace;
 use crate::msgs::base::Payload;
+use crate::msgs::enums::CertificateType;
 use crate::msgs::handshake::{ClientHelloPayload, ProtocolName, ServerExtension};
 use crate::msgs::message::Message;
 #[cfg(feature = "std")]
@@ -31,11 +32,15 @@ use crate::time_provider::TimeProvider;
 use crate::vecbuf::ChunkVecBuffer;
 #[cfg(feature = "std")]
 use crate::WantsVerifier;
-use crate::{compress, sign, verify, versions, KeyLog, WantsVersions};
+use crate::{compress, sign, verify, versions, DistinguishedName, KeyLog, WantsVersions};
 
 /// A trait for the ability to store server session data.
 ///
 /// The keys and values are opaque.
+///
+/// Inserted keys are randomly chosen by the library and have
+/// no internal structure (in other words, you may rely on all
+/// bits being uniformly random).  Queried keys are untrusted data.
 ///
 /// Both the keys and values should be treated as
 /// **highly sensitive data**, containing enough key material
@@ -119,37 +124,29 @@ pub trait ResolvesServerCert: Debug + Send + Sync {
     ///
     /// Return `None` to abort the handshake.
     fn resolve(&self, client_hello: ClientHello<'_>) -> Option<Arc<sign::CertifiedKey>>;
+
+    /// Return true when the server only supports raw public keys.
+    fn only_raw_public_keys(&self) -> bool {
+        false
+    }
 }
 
 /// A struct representing the received Client Hello
+#[derive(Debug)]
 pub struct ClientHello<'a> {
-    server_name: &'a Option<DnsName<'a>>,
-    signature_schemes: &'a [SignatureScheme],
-    alpn: Option<&'a Vec<ProtocolName>>,
-    cipher_suites: &'a [CipherSuite],
+    pub(super) server_name: &'a Option<DnsName<'a>>,
+    pub(super) signature_schemes: &'a [SignatureScheme],
+    pub(super) alpn: Option<&'a Vec<ProtocolName>>,
+    pub(super) server_cert_types: Option<&'a [CertificateType]>,
+    pub(super) client_cert_types: Option<&'a [CertificateType]>,
+    pub(super) cipher_suites: &'a [CipherSuite],
+    /// The [certificate_authorities] extension, if it was sent by the client.
+    ///
+    /// [certificate_authorities]: https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.4
+    pub(super) certificate_authorities: Option<&'a [DistinguishedName]>,
 }
 
 impl<'a> ClientHello<'a> {
-    /// Creates a new ClientHello
-    pub(super) fn new(
-        server_name: &'a Option<DnsName<'_>>,
-        signature_schemes: &'a [SignatureScheme],
-        alpn: Option<&'a Vec<ProtocolName>>,
-        cipher_suites: &'a [CipherSuite],
-    ) -> Self {
-        trace!("sni {:?}", server_name);
-        trace!("sig schemes {:?}", signature_schemes);
-        trace!("alpn protocols {:?}", alpn);
-        trace!("cipher suites {:?}", cipher_suites);
-
-        ClientHello {
-            server_name,
-            signature_schemes,
-            alpn,
-            cipher_suites,
-        }
-    }
-
     /// Get the server name indicator.
     ///
     /// Returns `None` if the client did not supply a SNI.
@@ -195,6 +192,29 @@ impl<'a> ClientHello<'a> {
     pub fn cipher_suites(&self) -> &[CipherSuite] {
         self.cipher_suites
     }
+
+    /// Get the server certificate types offered in the ClientHello.
+    ///
+    /// Returns `None` if the client did not include a certificate type extension.
+    pub fn server_cert_types(&self) -> Option<&'a [CertificateType]> {
+        self.server_cert_types
+    }
+
+    /// Get the client certificate types offered in the ClientHello.
+    ///
+    /// Returns `None` if the client did not include a certificate type extension.
+    pub fn client_cert_types(&self) -> Option<&'a [CertificateType]> {
+        self.client_cert_types
+    }
+
+    /// Get the [certificate_authorities] extension sent by the client.
+    ///
+    /// Returns `None` if the client did not send this extension.
+    ///
+    /// [certificate_authorities]: https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.4
+    pub fn certificate_authorities(&self) -> Option<&'a [DistinguishedName]> {
+        self.certificate_authorities
+    }
 }
 
 /// Common configuration for a set of server sessions.
@@ -216,7 +236,7 @@ impl<'a> ClientHello<'a> {
 ///   implementation.
 /// * [`ServerConfig::alpn_protocols`]: the default is empty -- no ALPN protocol is negotiated.
 /// * [`ServerConfig::key_log`]: key material is not logged.
-/// * [`ServerConfig::send_tls13_tickets`]: 4 tickets are sent.
+/// * [`ServerConfig::send_tls13_tickets`]: 2 tickets are sent.
 /// * [`ServerConfig::cert_compressors`]: depends on the crate features, see [`compress::default_cert_compressors()`].
 /// * [`ServerConfig::cert_compression_cache`]: caches the most recently used 4 compressions
 /// * [`ServerConfig::cert_decompressors`]: depends on the crate features, see [`compress::default_cert_decompressors()`].
@@ -316,7 +336,7 @@ pub struct ServerConfig {
     /// Because TLS1.3 tickets are single-use, this allows
     /// a client to perform multiple resumptions.
     ///
-    /// The default is 4.
+    /// The default is 2.
     ///
     /// If this is 0, no tickets are sent and clients will not be able to
     /// do any resumption.
@@ -422,10 +442,9 @@ impl ServerConfig {
         provider: Arc<CryptoProvider>,
     ) -> ConfigBuilder<Self, WantsVersions> {
         ConfigBuilder {
-            state: WantsVersions {
-                provider,
-                time_provider: Arc::new(DefaultTimeProvider),
-            },
+            state: WantsVersions {},
+            provider,
+            time_provider: Arc::new(DefaultTimeProvider),
             side: PhantomData,
         }
     }
@@ -449,10 +468,9 @@ impl ServerConfig {
         time_provider: Arc<dyn TimeProvider>,
     ) -> ConfigBuilder<Self, WantsVersions> {
         ConfigBuilder {
-            state: WantsVersions {
-                provider,
-                time_provider,
-            },
+            state: WantsVersions {},
+            provider,
+            time_provider,
             side: PhantomData,
         }
     }
@@ -540,7 +558,7 @@ mod connection {
         }
     }
 
-    impl<'a> io::Read for ReadEarlyData<'a> {
+    impl io::Read for ReadEarlyData<'_> {
         fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
             self.early_data.read(buf)
         }
@@ -642,6 +660,15 @@ mod connection {
             }
         }
 
+        /// Return true if the connection was made with a `ServerConfig` that is FIPS compatible.
+        ///
+        /// This is different from [`crate::crypto::CryptoProvider::fips()`]:
+        /// it is concerned only with cryptography, whereas this _also_ covers TLS-level
+        /// configuration that NIST recommends, as well as ECH HPKE suites if applicable.
+        pub fn fips(&self) -> bool {
+            self.inner.core.common_state.fips
+        }
+
         /// Extract secrets, so they can be used when configuring kTLS, for example.
         /// Should be used with care as it exposes secret key material.
         pub fn dangerous_extract_secrets(self) -> Result<ExtractedSecrets, Error> {
@@ -716,7 +743,7 @@ mod connection {
     ///     let conn = accepted
     ///         .into_connection(config)
     ///         .unwrap();
-
+    ///
     ///     // Proceed with handling the ServerConnection.
     /// }
     /// # }
@@ -771,14 +798,11 @@ mod connection {
         /// application should call `alert.write()` to send the alert to the client. It should
         /// not call `accept()` again.
         pub fn accept(&mut self) -> Result<Option<Accepted>, (Error, AcceptedAlert)> {
-            let mut connection = match self.inner.take() {
-                Some(conn) => conn,
-                None => {
-                    return Err((
-                        Error::General("Acceptor polled after completion".into()),
-                        AcceptedAlert::empty(),
-                    ));
-                }
+            let Some(mut connection) = self.inner.take() else {
+                return Err((
+                    Error::General("Acceptor polled after completion".into()),
+                    AcceptedAlert::empty(),
+                ));
             };
 
             let message = match connection.first_handshake_message() {
@@ -902,12 +926,18 @@ impl Accepted {
     /// Get the [`ClientHello`] for this connection.
     pub fn client_hello(&self) -> ClientHello<'_> {
         let payload = Self::client_hello_payload(&self.message);
-        ClientHello::new(
-            &self.connection.core.data.sni,
-            &self.sig_schemes,
-            payload.alpn_extension(),
-            &payload.cipher_suites,
-        )
+        let ch = ClientHello {
+            server_name: &self.connection.core.data.sni,
+            signature_schemes: &self.sig_schemes,
+            alpn: payload.alpn_extension(),
+            server_cert_types: payload.server_certificate_extension(),
+            client_cert_types: payload.client_certificate_extension(),
+            cipher_suites: &payload.cipher_suites,
+            certificate_authorities: payload.certificate_authorities_extension(),
+        };
+
+        trace!("Accepted::client_hello(): {ch:#?}");
+        ch
     }
 
     /// Convert the [`Accepted`] into a [`ServerConnection`].
@@ -1089,6 +1119,7 @@ impl ConnectionCore<ServerConnectionData> {
         let mut common = CommonState::new(Side::Server);
         common.set_max_fragment_size(config.max_fragment_size)?;
         common.enable_secret_extraction = config.enable_secret_extraction;
+        common.fips = config.fips();
         Ok(Self::new(
             Box::new(hs::ExpectClientHello::new(config, extra_exts)),
             ServerConnectionData::default(),

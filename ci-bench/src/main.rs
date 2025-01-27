@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::fs::{self, File};
+use std::fs::File;
 use std::hint::black_box;
 use std::io::{self, BufRead, BufReader, Write};
 use std::mem;
@@ -16,18 +16,20 @@ use itertools::Itertools;
 use rayon::iter::Either;
 use rayon::prelude::*;
 use rustls::client::Resumption;
-use rustls::crypto::{aws_lc_rs, ring};
+use rustls::crypto::{aws_lc_rs, ring, CryptoProvider, GetRandomFailed, SecureRandom};
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::CertificateDer;
 use rustls::server::{NoServerSessionStorage, ServerSessionMemoryCache, WebPkiClientVerifier};
 use rustls::{
-    CipherSuite, ClientConfig, ClientConnection, ProtocolVersion, RootCertStore, ServerConfig,
-    ServerConnection,
+    CipherSuite, ClientConfig, ClientConnection, HandshakeKind, ProtocolVersion, RootCertStore,
+    ServerConfig, ServerConnection,
 };
 
 use crate::benchmark::{
     get_reported_instr_count, validate_benchmarks, Benchmark, BenchmarkKind, BenchmarkParams,
     ResumptionKind,
 };
-use crate::cachegrind::CachegrindRunner;
+use crate::callgrind::{CallgrindRunner, CountInstructions};
 use crate::util::async_io::{self, AsyncRead, AsyncWrite};
 use crate::util::transport::{
     read_handshake_message, read_plaintext_to_end_bounded, send_handshake_message,
@@ -36,7 +38,7 @@ use crate::util::transport::{
 use crate::util::KeyType;
 
 mod benchmark;
-mod cachegrind;
+mod callgrind;
 mod util;
 
 /// The size in bytes of the plaintext sent in the transfer benchmark
@@ -297,13 +299,13 @@ fn all_benchmarks_params() -> Vec<BenchmarkParams> {
 
     for (provider, suites, ticketer, provider_name) in [
         (
-            ring::default_provider(),
+            derandomize(ring::default_provider()),
             ring::ALL_CIPHER_SUITES,
             &(ring_ticketer as fn() -> Arc<dyn rustls::server::ProducesTickets>),
             "ring",
         ),
         (
-            aws_lc_rs::default_provider(),
+            derandomize(aws_lc_rs::default_provider()),
             aws_lc_rs::ALL_CIPHER_SUITES,
             &(aws_lc_rs_ticketer as fn() -> Arc<dyn rustls::server::ProducesTickets>),
             "aws_lc_rs",
@@ -384,6 +386,23 @@ fn aws_lc_rs_ticketer() -> Arc<dyn rustls::server::ProducesTickets> {
     aws_lc_rs::Ticketer::new().unwrap()
 }
 
+fn derandomize(base: CryptoProvider) -> CryptoProvider {
+    CryptoProvider {
+        secure_random: &NotRandom,
+        ..base
+    }
+}
+
+#[derive(Debug)]
+struct NotRandom;
+
+impl SecureRandom for NotRandom {
+    fn fill(&self, buf: &mut [u8]) -> Result<(), GetRandomFailed> {
+        buf.fill(0x5a);
+        Ok(())
+    }
+}
+
 /// Adds a group of benchmarks for the specified parameters
 ///
 /// The benchmarks in the group are:
@@ -403,41 +422,29 @@ fn add_benchmark_group(benchmarks: &mut Vec<Benchmark>, params: BenchmarkParams)
             params.clone(),
         );
 
-        let handshake_bench = if resumption_param != ResumptionKind::No {
-            // Since resumed handshakes include a first non-resumed handshake, we need to subtract
-            // the non-resumed handshake's instructions
-            handshake_bench
-                .exclude_setup_instructions(format!("handshake_no_resume_{params_label}"))
-        } else {
-            handshake_bench
-        };
-
         benchmarks.push(handshake_bench);
     }
 
     // Benchmark data transfer
-    benchmarks.push(
-        Benchmark::new(
-            format!("transfer_no_resume_{params_label}"),
-            BenchmarkKind::Transfer,
-            params.clone(),
-        )
-        .exclude_setup_instructions(format!("handshake_no_resume_{params_label}")),
-    );
+    benchmarks.push(Benchmark::new(
+        format!("transfer_no_resume_{params_label}"),
+        BenchmarkKind::Transfer,
+        params.clone(),
+    ));
 }
 
-/// Run all the provided benches under cachegrind to retrieve their instruction count
+/// Run all the provided benches under callgrind to retrieve their instruction count
 pub fn run_all(
     executable: String,
     output_dir: PathBuf,
     benches: &[Benchmark],
 ) -> anyhow::Result<Vec<(String, u64)>> {
     // Run the benchmarks in parallel
-    let cachegrind = CachegrindRunner::new(executable, output_dir)?;
+    let runner = CallgrindRunner::new(executable, output_dir)?;
     let results: Vec<_> = benches
         .par_iter()
         .enumerate()
-        .map(|(i, bench)| (bench, cachegrind.run_bench(i as u32, bench)))
+        .map(|(i, bench)| (bench, runner.run_bench(i as u32, bench)))
         .collect();
 
     // Report possible errors
@@ -476,6 +483,7 @@ trait BenchStepper {
     async fn handshake(&mut self) -> anyhow::Result<Self::Endpoint>;
     async fn sync_before_resumed_handshake(&mut self) -> anyhow::Result<()>;
     async fn transmit_data(&mut self, endpoint: &mut Self::Endpoint) -> anyhow::Result<()>;
+    fn handshake_kind(&self, endpoint: &Self::Endpoint) -> HandshakeKind;
 }
 
 /// Stepper fields necessary for IO
@@ -496,14 +504,14 @@ impl ClientSideStepper<'_> {
     fn make_config(params: &BenchmarkParams, resume: ResumptionKind) -> Arc<ClientConfig> {
         assert_eq!(params.ciphersuite.version(), params.version);
         let mut root_store = RootCertStore::empty();
-        let mut rootbuf =
-            io::BufReader::new(fs::File::open(params.key_type.path_for("ca.cert")).unwrap());
         root_store.add_parsable_certificates(
-            rustls_pemfile::certs(&mut rootbuf).map(|result| result.unwrap()),
+            CertificateDer::pem_file_iter(params.key_type.path_for("ca.cert"))
+                .unwrap()
+                .map(|result| result.unwrap()),
         );
 
         let mut cfg = ClientConfig::builder_with_provider(
-            rustls::crypto::CryptoProvider {
+            CryptoProvider {
                 cipher_suites: vec![params.ciphersuite],
                 ..params.provider.clone()
             }
@@ -566,6 +574,10 @@ impl BenchStepper for ClientSideStepper<'_> {
         assert_eq!(total_plaintext_read, TRANSFER_PLAINTEXT_SIZE);
         Ok(())
     }
+
+    fn handshake_kind(&self, endpoint: &Self::Endpoint) -> HandshakeKind {
+        endpoint.handshake_kind().unwrap()
+    }
 }
 
 /// A benchmark stepper for the server-side of the connection
@@ -624,21 +636,28 @@ impl BenchStepper for ServerSideStepper<'_> {
         write_all_plaintext_bounded(endpoint, self.io.writer, TRANSFER_PLAINTEXT_SIZE).await?;
         Ok(())
     }
+
+    fn handshake_kind(&self, endpoint: &Self::Endpoint) -> HandshakeKind {
+        endpoint.handshake_kind().unwrap()
+    }
 }
 
 /// Runs the benchmark using the provided stepper
 async fn run_bench<T: BenchStepper>(mut stepper: T, kind: BenchmarkKind) -> anyhow::Result<()> {
-    let mut endpoint = stepper.handshake().await?;
-
     match kind {
         BenchmarkKind::Handshake(ResumptionKind::No) => {
-            // Nothing else to do here, since the handshake already happened
-            black_box(endpoint);
+            // Just count instructions for one handshake.
+            let _count = CountInstructions::start();
+            black_box(stepper.handshake().await?);
         }
         BenchmarkKind::Handshake(_) => {
-            // The handshake performed above was non-resumed, because the client didn't have a
-            // session ID / ticket; from now on we can perform resumed handshakes. We do it multiple
+            // The first handshake performed is non-resumed, because the client didn't have a
+            // session ID / ticket.  This is not measured.
+            stepper.handshake().await?;
+
+            // From now on we can perform resumed handshakes. We do it multiple
             // times, for reasons explained in the comments to `RESUMED_HANDSHAKE_RUNS`.
+            let _count = CountInstructions::start();
             for _ in 0..RESUMED_HANDSHAKE_RUNS {
                 // Wait for the endpoints to sync (i.e. the server must have discarded the previous
                 // connection and be ready for a new handshake, otherwise the client will start a
@@ -647,10 +666,14 @@ async fn run_bench<T: BenchStepper>(mut stepper: T, kind: BenchmarkKind) -> anyh
                 stepper
                     .sync_before_resumed_handshake()
                     .await?;
-                stepper.handshake().await?;
+                let endpoint = stepper.handshake().await?;
+                assert_eq!(stepper.handshake_kind(&endpoint), HandshakeKind::Resumed);
             }
         }
         BenchmarkKind::Transfer => {
+            // Measurement includes the transfer, but not the handshake.
+            let mut endpoint = stepper.handshake().await?;
+            let _count = CountInstructions::start();
             stepper
                 .transmit_data(&mut endpoint)
                 .await?;
@@ -664,10 +687,8 @@ async fn run_bench<T: BenchStepper>(mut stepper: T, kind: BenchmarkKind) -> anyh
 struct CompareResult {
     /// Results for benchmark scenarios we know are fairly deterministic.
     ///
-    /// The string is a detailed diff between the instruction counts obtained from cachegrind.
+    /// The string is a detailed diff between the instruction counts obtained from callgrind.
     diffs: Vec<(Diff, String)>,
-    /// Results for benchmark scenarios we know are extremely non-deterministic
-    known_noisy: Vec<Diff>,
     /// Benchmark scenarios present in the candidate but missing in the baseline
     missing_in_baseline: Vec<String>,
 }
@@ -720,7 +741,6 @@ fn compare_results(
 ) -> anyhow::Result<CompareResult> {
     let mut diffs = Vec::new();
     let mut missing = Vec::new();
-    let mut known_noisy = Vec::new();
 
     for (scenario, &instr_count) in candidate {
         let Some(&baseline_instr_count) = baseline.get(scenario) else {
@@ -738,10 +758,7 @@ fn compare_results(
             diff_ratio,
         };
 
-        match is_known_noisy(scenario) {
-            true => known_noisy.push(diff),
-            false => diffs.push(diff),
-        };
+        diffs.push(diff);
     }
 
     diffs.sort_by(|diff1, diff2| {
@@ -751,33 +768,16 @@ fn compare_results(
             .total_cmp(&diff1.diff_ratio.abs())
     });
 
-    let mut diffs_with_cachegrind_diff = Vec::new();
+    let mut diffs_with_callgrind_diff = Vec::new();
     for diff in diffs {
-        let detailed_diff = cachegrind::diff(baseline_dir, candidate_dir, &diff.scenario)?;
-        diffs_with_cachegrind_diff.push((diff, detailed_diff));
+        let detailed_diff = callgrind::diff(baseline_dir, candidate_dir, &diff.scenario)?;
+        diffs_with_callgrind_diff.push((diff, detailed_diff));
     }
 
     Ok(CompareResult {
-        diffs: diffs_with_cachegrind_diff,
+        diffs: diffs_with_callgrind_diff,
         missing_in_baseline: missing,
-        known_noisy,
     })
-}
-
-fn is_known_noisy(scenario_name: &str) -> bool {
-    // aws-lc-rs RSA key validation is non-deterministic, and expensive in relative terms for
-    // "cheaper" tests, and only done for server-side tests.  Exclude these tests
-    // from comparison.
-    //
-    // Better solutions for this include:
-    // - https://github.com/rustls/rustls/issues/1494: exclude key validation in these tests.
-    //   Key validation is benchmarked separately elsewhere, and mostly amortised into
-    //   insignificance in real-world scenarios.
-    // - Find a way to make aws-lc-rs deterministic, such as by replacing its RNG with a
-    //   test-only one.
-    scenario_name.contains("_aws_lc_rs_")
-        && scenario_name.contains("_rsa_")
-        && scenario_name.ends_with("_server")
 }
 
 /// Prints a report of the comparison to stdout, using GitHub-flavored markdown
@@ -813,14 +813,6 @@ fn print_report(result: &CompareResult) {
             println!("{detailed_diff}");
             println!("```");
         }
-        println!("</details>\n")
-    }
-
-    if !result.known_noisy.is_empty() {
-        println!("### ‼️ Caution: ignored noisy benchmarks");
-        println!("<details>");
-        println!("<summary>Click to expand</summary>\n");
-        table(result.known_noisy.iter(), false);
         println!("</details>\n")
     }
 }

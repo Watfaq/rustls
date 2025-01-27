@@ -136,6 +136,22 @@ pub trait ServerCertVerifier: Debug + Send + Sync {
     ///
     /// This should be in priority order, with the most preferred first.
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme>;
+
+    /// Returns whether this verifier requires raw public keys as defined
+    /// in [RFC 7250](https://tools.ietf.org/html/rfc7250).
+    fn requires_raw_public_keys(&self) -> bool {
+        false
+    }
+
+    /// Return the [`DistinguishedName`]s of certificate authorities that this verifier trusts.
+    ///
+    /// If specified, will be sent as the [`certificate_authorities`] extension in ClientHello.
+    /// Note that this is only applicable to TLS 1.3.
+    ///
+    /// [`certificate_authorities`]: https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.4
+    fn root_hint_subjects(&self) -> Option<&[DistinguishedName]> {
+        None
+    }
 }
 
 /// Something that can verify a client certificate chain
@@ -249,9 +265,17 @@ pub trait ClientCertVerifier: Debug + Send + Sync {
     ///
     /// This should be in priority order, with the most preferred first.
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme>;
+
+    /// Returns whether this verifier requires raw public keys as defined
+    /// in [RFC 7250](https://tools.ietf.org/html/rfc7250).
+    fn requires_raw_public_keys(&self) -> bool {
+        false
+    }
 }
 
-/// Turns off client authentication. In contrast to using
+/// Turns off client authentication.
+///
+/// In contrast to using
 /// `WebPkiClientVerifier::builder(roots).allow_unauthenticated().build()`, the `NoClientAuth`
 /// `ClientCertVerifier` will not offer client authentication at all, vs offering but not
 /// requiring it.

@@ -5,10 +5,18 @@ permissions:
 
 on:
   push:
+    branches-ignore:
+    - 'gh-readonly-queue/**'
+    tags:
+    - '**'
   pull_request:
   merge_group:
   schedule:
     - cron: '0 18 * * *'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -73,10 +81,9 @@ jobs:
         env:
           RUST_BACKTRACE: 1
 
-      # nb. this is separate so it can be skipped on macOS & windows, where
-      # doctests don't work: https://github.com/rust-lang/cargo/issues/8531
+      # nb. this is separate since `--doc` option cannot be combined with other target option(s) ref:
+      # - https://doc.rust-lang.org/cargo/commands/cargo-test.html
       - name: cargo test --doc (release; all-features)
-        if: ${{ runner.os != 'macOS' && runner.os != 'Windows' }}
         run: cargo test --release --locked --all-features --doc
         env:
           RUST_BACKTRACE: 1
@@ -97,8 +104,14 @@ jobs:
       - name: cargo build (debug; rustls-provider-example lib in no-std mode)
         run: cargo build --locked -p rustls-provider-example --no-default-features
 
+      - name: cargo test (debug; rustls-provider-example; all features)
+        run: cargo test --all-features -p rustls-provider-example
+
       - name: cargo build (debug; rustls-provider-test)
         run: cargo build --locked -p rustls-provider-test
+
+      - name: cargo test (debug; rustls-provider-test; all features)
+        run: cargo test --all-features -p rustls-provider-test
 
       - name: cargo package --all-features -p rustls
         run: cargo package --all-features -p rustls
@@ -114,7 +127,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.63"
+          toolchain: "1.71"
 
       # zlib-rs is optional and requires a later MSRV
       - run: cargo check --locked --lib $(admin/all-features-except zlib rustls) -p rustls
@@ -215,6 +228,12 @@ jobs:
         env:
           BOGO_SHIM_PROVIDER: aws-lc-rs-fips
 
+      - name: Run test suite (post-quantum)
+        working-directory: bogo
+        run: ./runme
+        env:
+          BOGO_SHIM_PROVIDER: post-quantum
+
   fuzz:
     name: Smoke-test fuzzing targets
     runs-on: ubuntu-latest
@@ -250,13 +269,13 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
 
       - name: Smoke-test benchmark program (ring)
-        run: cargo run -p rustls --profile=bench --locked --example bench $(admin/all-features-except aws_lc_rs,aws-lc-rs,fips rustls) -- --multiplier 0.1
+        run: cargo run -p rustls-bench --profile=bench --locked --features ring -- --multiplier 0.1
 
       - name: Smoke-test benchmark program (aws-lc-rs)
-        run: cargo run -p rustls --profile=bench --locked --example bench $(admin/all-features-except ring,fips rustls) -- --multiplier 0.1
+        run: cargo run -p rustls-bench --profile=bench --locked --features aws-lc-rs -- --multiplier 0.1
 
       - name: Smoke-test benchmark program (fips)
-        run: cargo run -p rustls --profile=bench --locked --example bench $(admin/all-features-except aws_lc_rs,aws-lc-rs,ring rustls) -- --multiplier 0.1
+        run: cargo run -p rustls-bench --profile=bench --locked --features fips -- --provider aws-lc-rs-fips --multiplier 0.1
 
       - name: Run micro-benchmarks
         run: cargo bench --locked --all-features
@@ -284,12 +303,12 @@ jobs:
         run: |
           cargo build --locked --all-features
           ./admin/pull-readme
-          ./admin/pull-usage
           git diff --exit-code
 
   coverage:
     name: Measure coverage
     runs-on: ubuntu-latest
+    if: github.event_name != 'merge_group'
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -308,9 +327,9 @@ jobs:
         run: ./admin/coverage --lcov --output-path final.info
 
       - name: Report to codecov.io
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
-          file: final.info
+          files: final.info
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
@@ -340,6 +359,7 @@ jobs:
   cross:
     name: cross-target testing
     runs-on: ubuntu-latest
+    if: github.event_name != 'merge_group'
     strategy:
       matrix:
         target:
@@ -369,7 +389,7 @@ jobs:
         run: cargo install cross --git https://github.com/cross-rs/cross
       - name: Install bindgen feature & CLI for aws-lc-sys (as needed for many cross targets)
         if: ${{ matrix.target != 'i686-unknown-linux-gnu' }}
-        run: cargo add --dev --features bindgen aws-lc-sys --package rustls --verbose && cargo install bindgen-cli --verbose
+        run: cargo add --dev --features bindgen 'aws-lc-sys@>0.20' --package rustls --verbose && cargo install bindgen-cli --verbose
       - run: cross test --package rustls --target ${{ matrix.target }}
 
   semver:
@@ -429,26 +449,24 @@ jobs:
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
-    env:
-      # - we want to be free of any warnings, so deny them
-      # - disable incompatible_msrv as it does not understand that we apply our
-      #   MSRV to the just the core crate.
-      CLIPPY_PARAMS: --deny warnings --allow clippy::incompatible_msrv
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+
+      - name: Install valgrind
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y valgrind
+
       - name: Install rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-        # because examples enable rustls' features, `--workspace --no-default-features` is not
-        # the same as `--package rustls --no-default-features` so run it separately
-      - run: cargo clippy --locked --package rustls --no-default-features --all-targets -- $CLIPPY_PARAMS
-      - run: cargo clippy --locked --workspace --all-features --all-targets -- $CLIPPY_PARAMS
-        # not part of the workspace
-      - run: cargo clippy --locked --manifest-path=fuzz/Cargo.toml --all-features --all-targets -- $CLIPPY_PARAMS
+      # - we want to be free of any warnings, so deny them
+      # - disable incompatible_msrv as it does not understand that we apply our
+      #   MSRV to the just the core crate.
+      - run: ./admin/clippy -- --deny warnings --allow clippy::incompatible_msrv
 
   clippy-nightly:
     name: Clippy (Nightly)
@@ -458,13 +476,17 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+
+      - name: Install valgrind
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y valgrind
+
       - name: Install rust toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
           components: clippy
-      - run: cargo clippy --locked --package rustls --no-default-features --all-targets
-      - run: cargo clippy --locked --workspace --all-features --all-targets
-      - run: cargo clippy --locked --manifest-path=fuzz/Cargo.toml --all-features --all-targets
+      # do not deny warnings, as nightly clippy sometimes has false negatives
+      - run: ./admin/clippy
 
   check-external-types:
     name: Validate external types appearing in public API
@@ -477,7 +499,7 @@ jobs:
       - name: Install rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly-2024-05-01
+          toolchain: nightly-2024-06-30
           # ^ sync with https://github.com/awslabs/cargo-check-external-types/blob/main/rust-toolchain.toml
       - run: cargo install --locked cargo-check-external-types
       - name: run cargo-check-external-types for rustls/
@@ -487,6 +509,8 @@ jobs:
   openssl-tests:
     name: Run openssl-tests
     runs-on: ubuntu-latest
+    env:
+      VERSION: openssl-3.4.0
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -495,6 +519,29 @@ jobs:
 
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache ${{ env.VERSION }}
+        uses: actions/cache@v4
+        id: cache-openssl
+        with:
+          path: ${{ env.VERSION }}
+          key: ${{ env.VERSION }}
+
+      - name: Fetch and build ${{ env.VERSION }}
+        if: steps.cache-openssl.outputs.cache-hit != 'true'
+        run: |
+          wget https://github.com/openssl/openssl/releases/download/$VERSION/$VERSION.tar.gz
+          tar -xzf $VERSION.tar.gz
+          cd $VERSION/
+          ./Configure --prefix=$(pwd)/built/ --libdir=lib
+          make -j$(nproc)
+          make install
+
+      - name: Use ${{ env.VERSION }}
+        run: |
+         path=$(pwd)/$VERSION/built/
+         echo "$path/bin" >> $GITHUB_PATH
+         echo "LD_LIBRARY_PATH=$path/lib" >> $GITHUB_ENV
 
       - name: openssl version
         run: openssl version

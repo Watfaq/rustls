@@ -12,9 +12,11 @@ use crate::check::inappropriate_handshake_message;
 use crate::client::common::{ClientAuthDetails, ClientHelloDetails, ServerCertDetails};
 use crate::client::ech::{self, EchState, EchStatus};
 use crate::client::{hs, ClientConfig, ClientSessionStore};
-use crate::common_state::{CommonState, HandshakeKind, KxState, Protocol, Side, State};
+use crate::common_state::{
+    CommonState, HandshakeFlightTls13, HandshakeKind, KxState, Protocol, Side, State,
+};
 use crate::conn::ConnectionRandoms;
-use crate::crypto::ActiveKeyExchange;
+use crate::crypto::{ActiveKeyExchange, SharedSecret};
 use crate::enums::{
     AlertDescription, ContentType, HandshakeType, ProtocolVersion, SignatureScheme,
 };
@@ -27,8 +29,9 @@ use crate::msgs::codec::{Codec, Reader};
 use crate::msgs::enums::{ExtensionType, KeyUpdateRequest};
 use crate::msgs::handshake::{
     CertificatePayloadTls13, ClientExtension, EchConfigPayload, HandshakeMessagePayload,
-    HandshakePayload, HasServerExtensions, NewSessionTicketPayloadTls13, PresharedKeyIdentity,
-    PresharedKeyOffer, ServerExtension, ServerHelloPayload, CERTIFICATE_MAX_SIZE_LIMIT,
+    HandshakePayload, HasServerExtensions, KeyShareEntry, NewSessionTicketPayloadTls13,
+    PresharedKeyIdentity, PresharedKeyOffer, ServerExtension, ServerHelloPayload,
+    CERTIFICATE_MAX_SIZE_LIMIT,
 };
 use crate::msgs::message::{Message, MessagePayload};
 use crate::msgs::persist;
@@ -36,6 +39,7 @@ use crate::sign::{CertifiedKey, Signer};
 use crate::suites::PartiallyExtractedSecrets;
 use crate::tls13::key_schedule::{
     KeyScheduleEarly, KeyScheduleHandshake, KeySchedulePreHandshake, KeyScheduleTraffic,
+    ResumptionSecret,
 };
 use crate::tls13::{
     construct_client_verify_message, construct_server_verify_message, Tls13CipherSuite,
@@ -86,29 +90,25 @@ pub(super) fn handle_server_hello(
             )
         })?;
 
-    if our_key_share.group() != their_key_share.group {
-        return Err({
+    let our_key_share = KeyExchangeChoice::new(&config, cx, our_key_share, their_key_share)
+        .map_err(|_| {
             cx.common.send_fatal_alert(
                 AlertDescription::IllegalParameter,
                 PeerMisbehaved::WrongGroupForKeyShare,
             )
-        });
-    }
+        })?;
 
     let key_schedule_pre_handshake = if let (Some(selected_psk), Some(early_key_schedule)) =
         (server_hello.psk_index(), early_key_schedule)
     {
         if let Some(ref resuming) = resuming_session {
-            let resuming_suite = match suite.can_resume_from(resuming.suite()) {
-                Some(resuming) => resuming,
-                None => {
-                    return Err({
-                        cx.common.send_fatal_alert(
-                            AlertDescription::IllegalParameter,
-                            PeerMisbehaved::ResumptionOfferedWithIncompatibleCipherSuite,
-                        )
-                    });
-                }
+            let Some(resuming_suite) = suite.can_resume_from(resuming.suite()) else {
+                return Err({
+                    cx.common.send_fatal_alert(
+                        AlertDescription::IllegalParameter,
+                        PeerMisbehaved::ResumptionOfferedWithIncompatibleCipherSuite,
+                    )
+                });
             };
 
             // If the server varies the suite here, we will have encrypted early data with
@@ -147,7 +147,12 @@ pub(super) fn handle_server_hello(
     };
 
     cx.common.kx_state.complete();
-    let shared_secret = our_key_share.complete(&their_key_share.payload.0)?;
+    let shared_secret = our_key_share
+        .complete(&their_key_share.payload.0)
+        .map_err(|err| {
+            cx.common
+                .send_fatal_alert(AlertDescription::IllegalParameter, err)
+        })?;
 
     let mut key_schedule = key_schedule_pre_handshake.into_handshake(shared_secret);
 
@@ -209,6 +214,50 @@ pub(super) fn handle_server_hello(
     }))
 }
 
+enum KeyExchangeChoice {
+    Whole(Box<dyn ActiveKeyExchange>),
+    Component(Box<dyn ActiveKeyExchange>),
+}
+
+impl KeyExchangeChoice {
+    /// Decide between `our_key_share` or `our_key_share.hybrid_component()`
+    /// based on the selection of the server expressed in `their_key_share`.
+    fn new(
+        config: &Arc<ClientConfig>,
+        cx: &mut ClientContext<'_>,
+        our_key_share: Box<dyn ActiveKeyExchange>,
+        their_key_share: &KeyShareEntry,
+    ) -> Result<Self, ()> {
+        if our_key_share.group() == their_key_share.group {
+            return Ok(Self::Whole(our_key_share));
+        }
+
+        let (component_group, _) = our_key_share
+            .hybrid_component()
+            .ok_or(())?;
+
+        if component_group != their_key_share.group {
+            return Err(());
+        }
+
+        // correct the record for the benefit of accuracy of
+        // `negotiated_key_exchange_group()`
+        let actual_skxg = config
+            .find_kx_group(component_group, ProtocolVersion::TLSv1_3)
+            .ok_or(())?;
+        cx.common.kx_state = KxState::Start(actual_skxg);
+
+        Ok(Self::Component(our_key_share))
+    }
+
+    fn complete(self, peer_pub_key: &[u8]) -> Result<SharedSecret, Error> {
+        match self {
+            Self::Whole(akx) => akx.complete(peer_pub_key),
+            Self::Component(akx) => akx.complete_hybrid_component(peer_pub_key),
+        }
+    }
+}
+
 fn validate_server_hello(
     common: &mut CommonState,
     server_hello: &ServerHelloPayload,
@@ -234,7 +283,7 @@ pub(super) fn initial_key_share(
         .resumption
         .store
         .kx_hint(server_name)
-        .and_then(|group_name| config.find_kx_group(group_name))
+        .and_then(|group_name| config.find_kx_group(group_name, ProtocolVersion::TLSv1_3))
         .unwrap_or_else(|| {
             config
                 .provider
@@ -420,6 +469,8 @@ impl State<ClientConnectionData> for ExpectEncryptedExtensions {
 
         validate_encrypted_extensions(cx.common, &self.hello, exts)?;
         hs::process_alpn_protocol(cx.common, &self.config, exts.alpn_protocol())?;
+        hs::process_client_cert_type_extension(cx.common, &self.config, exts.client_cert_type())?;
+        hs::process_server_cert_type_extension(cx.common, &self.config, exts.server_cert_type())?;
 
         let ech_retry_configs = match (cx.data.ech_status, exts.server_ech_extension()) {
             // If we didn't offer ECH, or ECH was accepted, but the server sent an ECH encrypted
@@ -902,19 +953,17 @@ impl State<ClientConnectionData> for ExpectCompressedCertificate {
             HandshakePayload::CompressedCertificate
         )?;
 
-        let decompressor = match self
+        let selected_decompressor = self
             .config
             .cert_decompressors
             .iter()
-            .find(|item| item.algorithm() == compressed_cert.alg)
-        {
-            Some(dec) => dec,
-            None => {
-                return Err(cx.common.send_fatal_alert(
-                    AlertDescription::BadCertificate,
-                    PeerMisbehaved::SelectedUnofferedCertCompression,
-                ));
-            }
+            .find(|item| item.algorithm() == compressed_cert.alg);
+
+        let Some(decompressor) = selected_decompressor else {
+            return Err(cx.common.send_fatal_alert(
+                AlertDescription::BadCertificate,
+                PeerMisbehaved::SelectedUnofferedCertCompression,
+            ));
         };
 
         if compressed_cert.uncompressed_len as usize > CERTIFICATE_MAX_SIZE_LIMIT {
@@ -1113,7 +1162,7 @@ impl State<ClientConnectionData> for ExpectCertificateVerify<'_> {
             .config
             .verifier
             .verify_tls13_signature(
-                &construct_server_verify_message(&handshake_hash),
+                construct_server_verify_message(&handshake_hash).as_ref(),
                 end_entity,
                 cert_verify,
             )
@@ -1155,40 +1204,32 @@ impl State<ClientConnectionData> for ExpectCertificateVerify<'_> {
 }
 
 fn emit_compressed_certificate_tls13(
-    transcript: &mut HandshakeHash,
+    flight: &mut HandshakeFlightTls13<'_>,
     certkey: &CertifiedKey,
     auth_context: Option<Vec<u8>>,
     compressor: &dyn compress::CertCompressor,
     config: &ClientConfig,
-    common: &mut CommonState,
 ) {
     let mut cert_payload = CertificatePayloadTls13::new(certkey.cert.iter(), None);
     cert_payload.context = PayloadU8::new(auth_context.clone().unwrap_or_default());
 
-    let compressed = match config
+    let Ok(compressed) = config
         .cert_compression_cache
         .compression_for(compressor, &cert_payload)
-    {
-        Ok(compressed) => compressed,
-        Err(_) => return emit_certificate_tls13(transcript, Some(certkey), auth_context, common),
+    else {
+        return emit_certificate_tls13(flight, Some(certkey), auth_context);
     };
 
-    let m = Message {
-        version: ProtocolVersion::TLSv1_3,
-        payload: MessagePayload::handshake(HandshakeMessagePayload {
-            typ: HandshakeType::CompressedCertificate,
-            payload: HandshakePayload::CompressedCertificate(compressed.compressed_cert_payload()),
-        }),
-    };
-    transcript.add_message(&m);
-    common.send_msg(m, true);
+    flight.add(HandshakeMessagePayload {
+        typ: HandshakeType::CompressedCertificate,
+        payload: HandshakePayload::CompressedCertificate(compressed.compressed_cert_payload()),
+    });
 }
 
 fn emit_certificate_tls13(
-    transcript: &mut HandshakeHash,
+    flight: &mut HandshakeFlightTls13<'_>,
     certkey: Option<&CertifiedKey>,
     auth_context: Option<Vec<u8>>,
-    common: &mut CommonState,
 ) {
     let certs = certkey
         .map(|ck| ck.cert.as_ref())
@@ -1196,58 +1237,36 @@ fn emit_certificate_tls13(
     let mut cert_payload = CertificatePayloadTls13::new(certs.iter(), None);
     cert_payload.context = PayloadU8::new(auth_context.unwrap_or_default());
 
-    let m = Message {
-        version: ProtocolVersion::TLSv1_3,
-        payload: MessagePayload::handshake(HandshakeMessagePayload {
-            typ: HandshakeType::Certificate,
-            payload: HandshakePayload::CertificateTls13(cert_payload),
-        }),
-    };
-    transcript.add_message(&m);
-    common.send_msg(m, true);
+    flight.add(HandshakeMessagePayload {
+        typ: HandshakeType::Certificate,
+        payload: HandshakePayload::CertificateTls13(cert_payload),
+    });
 }
 
 fn emit_certverify_tls13(
-    transcript: &mut HandshakeHash,
+    flight: &mut HandshakeFlightTls13<'_>,
     signer: &dyn Signer,
-    common: &mut CommonState,
 ) -> Result<(), Error> {
-    let message = construct_client_verify_message(&transcript.current_hash());
+    let message = construct_client_verify_message(&flight.transcript.current_hash());
 
     let scheme = signer.scheme();
-    let sig = signer.sign(&message)?;
+    let sig = signer.sign(message.as_ref())?;
     let dss = DigitallySignedStruct::new(scheme, sig);
 
-    let m = Message {
-        version: ProtocolVersion::TLSv1_3,
-        payload: MessagePayload::handshake(HandshakeMessagePayload {
-            typ: HandshakeType::CertificateVerify,
-            payload: HandshakePayload::CertificateVerify(dss),
-        }),
-    };
-
-    transcript.add_message(&m);
-    common.send_msg(m, true);
+    flight.add(HandshakeMessagePayload {
+        typ: HandshakeType::CertificateVerify,
+        payload: HandshakePayload::CertificateVerify(dss),
+    });
     Ok(())
 }
 
-fn emit_finished_tls13(
-    transcript: &mut HandshakeHash,
-    verify_data: &crypto::hmac::Tag,
-    common: &mut CommonState,
-) {
+fn emit_finished_tls13(flight: &mut HandshakeFlightTls13<'_>, verify_data: &crypto::hmac::Tag) {
     let verify_data_payload = Payload::new(verify_data.as_ref());
 
-    let m = Message {
-        version: ProtocolVersion::TLSv1_3,
-        payload: MessagePayload::handshake(HandshakeMessagePayload {
-            typ: HandshakeType::Finished,
-            payload: HandshakePayload::Finished(verify_data_payload),
-        }),
-    };
-
-    transcript.add_message(&m);
-    common.send_msg(m, true);
+    flight.add(HandshakeMessagePayload {
+        typ: HandshakeType::Finished,
+        payload: HandshakePayload::Finished(verify_data_payload),
+    });
 }
 
 fn emit_end_of_early_data_tls13(transcript: &mut HandshakeHash, common: &mut CommonState) {
@@ -1321,6 +1340,8 @@ impl State<ClientConnectionData> for ExpectFinished {
                 .set_handshake_encrypter(cx.common);
         }
 
+        let mut flight = HandshakeFlightTls13::new(&mut st.transcript);
+
         /* Send our authentication/finished messages.  These are still encrypted
          * with our handshake keys. */
         if let Some(client_auth) = st.client_auth {
@@ -1328,7 +1349,7 @@ impl State<ClientConnectionData> for ExpectFinished {
                 ClientAuthDetails::Empty {
                     auth_context_tls13: auth_context,
                 } => {
-                    emit_certificate_tls13(&mut st.transcript, None, auth_context, cx.common);
+                    emit_certificate_tls13(&mut flight, None, auth_context);
                 }
                 ClientAuthDetails::Verify {
                     auth_context_tls13: auth_context,
@@ -1336,7 +1357,7 @@ impl State<ClientConnectionData> for ExpectFinished {
                 } if cx.data.ech_status == EchStatus::Rejected => {
                     // If ECH was offered, and rejected, we MUST respond with
                     // an empty certificate message.
-                    emit_certificate_tls13(&mut st.transcript, None, auth_context, cx.common);
+                    emit_certificate_tls13(&mut flight, None, auth_context);
                 }
                 ClientAuthDetails::Verify {
                     certkey,
@@ -1346,22 +1367,16 @@ impl State<ClientConnectionData> for ExpectFinished {
                 } => {
                     if let Some(compressor) = compressor {
                         emit_compressed_certificate_tls13(
-                            &mut st.transcript,
+                            &mut flight,
                             &certkey,
                             auth_context,
                             compressor,
                             &st.config,
-                            cx.common,
                         );
                     } else {
-                        emit_certificate_tls13(
-                            &mut st.transcript,
-                            Some(&certkey),
-                            auth_context,
-                            cx.common,
-                        );
+                        emit_certificate_tls13(&mut flight, Some(&certkey), auth_context);
                     }
-                    emit_certverify_tls13(&mut st.transcript, signer.as_ref(), cx.common)?;
+                    emit_certverify_tls13(&mut flight, signer.as_ref())?;
                 }
             }
         }
@@ -1370,12 +1385,13 @@ impl State<ClientConnectionData> for ExpectFinished {
             .key_schedule
             .into_pre_finished_client_traffic(
                 hash_after_handshake,
-                st.transcript.current_hash(),
+                flight.transcript.current_hash(),
                 &*st.config.key_log,
                 &st.randoms.client,
             );
 
-        emit_finished_tls13(&mut st.transcript, &verify_data, cx.common);
+        emit_finished_tls13(&mut flight, &verify_data);
+        flight.finish(cx.common);
 
         /* We're now sure this server supports TLS1.3.  But if we run out of TLS1.3 tickets
          * when connecting to it again, we definitely don't want to attempt a TLS1.2 resumption. */
@@ -1449,16 +1465,15 @@ impl ExpectTraffic {
         }
 
         let handshake_hash = self.transcript.current_hash();
-        let secret = self
-            .key_schedule
-            .resumption_master_secret_and_derive_ticket_psk(&handshake_hash, &nst.nonce.0);
+        let secret = ResumptionSecret::new(&self.key_schedule, &handshake_hash)
+            .derive_ticket_psk(&nst.nonce.0);
 
         let now = self.config.current_time()?;
 
         #[allow(unused_mut)]
         let mut value = persist::Tls13ClientSessionValue::new(
             self.suite,
-            nst.ticket.0.clone(),
+            Arc::clone(&nst.ticket),
             secret.as_ref(),
             cx.common
                 .peer_certificates
