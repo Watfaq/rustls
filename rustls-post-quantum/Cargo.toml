@@ -6,8 +6,8 @@ rust-version = "1.71"
 license = "Apache-2.0 OR ISC OR MIT"
 readme = "README.md"
 description = "Experimental support for post-quantum key exchange in rustls"
-homepage = "https://github.com/rustls/rustls"
-repository = "https://github.com/rustls/rustls"
+homepage = "https://github.com/Watfaq/rustls"
+repository = "https://github.com/Watfaq/rustls"
 categories = ["network-programming", "cryptography"]
 autobenches = false
 
