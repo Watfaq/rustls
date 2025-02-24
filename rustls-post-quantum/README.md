@@ -54,7 +54,7 @@ rustls_post_quantum::provider().install_default().unwrap();
 **To incorporate just the key exchange algorithm(s) in a custom [`rustls::crypto::CryptoProvider`]**:
 
 ```rust
-use rustls::crypto::{aws_lc_rs, CryptoProvider};
+use watfaq_rustls::crypto::{aws_lc_rs, CryptoProvider};
 let parent = aws_lc_rs::default_provider();
 let my_provider = CryptoProvider {
     kx_groups: vec![

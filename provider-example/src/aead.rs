@@ -2,13 +2,13 @@ use alloc::boxed::Box;
 
 use chacha20poly1305::aead::Buffer;
 use chacha20poly1305::{AeadInPlace, KeyInit, KeySizeUser};
-use rustls::crypto::cipher::{
+use watfaq_rustls::crypto::cipher::{
     make_tls12_aad, make_tls13_aad, AeadKey, BorrowedPayload, InboundOpaqueMessage,
     InboundPlainMessage, Iv, KeyBlockShape, MessageDecrypter, MessageEncrypter, Nonce,
     OutboundOpaqueMessage, OutboundPlainMessage, PrefixedPayload, Tls12AeadAlgorithm,
     Tls13AeadAlgorithm, UnsupportedOperationError, NONCE_LEN,
 };
-use rustls::{ConnectionTrafficSecrets, ContentType, ProtocolVersion};
+use watfaq_rustls::{ConnectionTrafficSecrets, ContentType, ProtocolVersion};
 
 pub struct Chacha20Poly1305;
 
@@ -85,7 +85,7 @@ impl MessageEncrypter for Tls13Cipher {
         &mut self,
         m: OutboundPlainMessage,
         seq: u64,
-    ) -> Result<OutboundOpaqueMessage, rustls::Error> {
+    ) -> Result<OutboundOpaqueMessage, watfaq_rustls::Error> {
         let total_len = self.encrypted_payload_len(m.payload.len());
         let mut payload = PrefixedPayload::with_capacity(total_len);
 
@@ -96,7 +96,7 @@ impl MessageEncrypter for Tls13Cipher {
 
         self.0
             .encrypt_in_place(&nonce, &aad, &mut EncryptBufferAdapter(&mut payload))
-            .map_err(|_| rustls::Error::EncryptError)
+            .map_err(|_| watfaq_rustls::Error::EncryptError)
             .map(|_| {
                 OutboundOpaqueMessage::new(
                     ContentType::ApplicationData,
@@ -116,14 +116,14 @@ impl MessageDecrypter for Tls13Cipher {
         &mut self,
         mut m: InboundOpaqueMessage<'a>,
         seq: u64,
-    ) -> Result<InboundPlainMessage<'a>, rustls::Error> {
+    ) -> Result<InboundPlainMessage<'a>, watfaq_rustls::Error> {
         let payload = &mut m.payload;
         let nonce = chacha20poly1305::Nonce::from(Nonce::new(&self.1, seq).0);
         let aad = make_tls13_aad(payload.len());
 
         self.0
             .decrypt_in_place(&nonce, &aad, &mut DecryptBufferAdapter(payload))
-            .map_err(|_| rustls::Error::DecryptError)?;
+            .map_err(|_| watfaq_rustls::Error::DecryptError)?;
 
         m.into_tls13_unpadded_message()
     }
@@ -136,7 +136,7 @@ impl MessageEncrypter for Tls12Cipher {
         &mut self,
         m: OutboundPlainMessage,
         seq: u64,
-    ) -> Result<OutboundOpaqueMessage, rustls::Error> {
+    ) -> Result<OutboundOpaqueMessage, watfaq_rustls::Error> {
         let total_len = self.encrypted_payload_len(m.payload.len());
         let mut payload = PrefixedPayload::with_capacity(total_len);
 
@@ -146,7 +146,7 @@ impl MessageEncrypter for Tls12Cipher {
 
         self.0
             .encrypt_in_place(&nonce, &aad, &mut EncryptBufferAdapter(&mut payload))
-            .map_err(|_| rustls::Error::EncryptError)
+            .map_err(|_| watfaq_rustls::Error::EncryptError)
             .map(|_| OutboundOpaqueMessage::new(m.typ, m.version, payload))
     }
 
@@ -160,7 +160,7 @@ impl MessageDecrypter for Tls12Cipher {
         &mut self,
         mut m: InboundOpaqueMessage<'a>,
         seq: u64,
-    ) -> Result<InboundPlainMessage<'a>, rustls::Error> {
+    ) -> Result<InboundPlainMessage<'a>, watfaq_rustls::Error> {
         let payload = &m.payload;
         let nonce = chacha20poly1305::Nonce::from(Nonce::new(&self.1, seq).0);
         let aad = make_tls12_aad(
@@ -173,7 +173,7 @@ impl MessageDecrypter for Tls12Cipher {
         let payload = &mut m.payload;
         self.0
             .decrypt_in_place(&nonce, &aad, &mut DecryptBufferAdapter(payload))
-            .map_err(|_| rustls::Error::DecryptError)?;
+            .map_err(|_| watfaq_rustls::Error::DecryptError)?;
 
         Ok(m.into_plain_message())
     }

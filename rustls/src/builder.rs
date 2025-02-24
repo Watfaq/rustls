@@ -31,8 +31,8 @@ use crate::{ClientConfig, ServerConfig};
 ///
 /// ```
 /// # #[cfg(feature = "aws_lc_rs")] {
-/// # rustls::crypto::aws_lc_rs::default_provider().install_default();
-/// use rustls::{ClientConfig, ServerConfig};
+/// # watfaq_rustls::crypto::aws_lc_rs::default_provider().install_default();
+/// use watfaq_rustls::{ClientConfig, ServerConfig};
 /// ClientConfig::builder()
 /// //  ...
 /// # ;
@@ -47,9 +47,9 @@ use crate::{ClientConfig, ServerConfig};
 ///
 /// ```no_run
 /// # #[cfg(feature = "aws_lc_rs")] {
-/// # rustls::crypto::aws_lc_rs::default_provider().install_default();
-/// # use rustls::ServerConfig;
-/// ServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+/// # watfaq_rustls::crypto::aws_lc_rs::default_provider().install_default();
+/// # use watfaq_rustls::ServerConfig;
+/// ServerConfig::builder_with_protocol_versions(&[&watfaq_rustls::version::TLS13])
 /// //  ...
 /// # ;
 /// # }
@@ -83,9 +83,9 @@ use crate::{ClientConfig, ServerConfig};
 ///
 /// ```
 /// # #[cfg(feature = "aws_lc_rs")] {
-/// # rustls::crypto::aws_lc_rs::default_provider().install_default();
-/// # use rustls::ClientConfig;
-/// # let root_certs = rustls::RootCertStore::empty();
+/// # watfaq_rustls::crypto::aws_lc_rs::default_provider().install_default();
+/// # use watfaq_rustls::ClientConfig;
+/// # let root_certs = watfaq_rustls::RootCertStore::empty();
 /// ClientConfig::builder()
 ///     .with_root_certificates(root_certs)
 ///     .with_no_client_auth();
@@ -107,8 +107,8 @@ use crate::{ClientConfig, ServerConfig};
 ///
 /// ```no_run
 /// # #[cfg(feature = "aws_lc_rs")] {
-/// # rustls::crypto::aws_lc_rs::default_provider().install_default();
-/// # use rustls::ServerConfig;
+/// # watfaq_rustls::crypto::aws_lc_rs::default_provider().install_default();
+/// # use watfaq_rustls::ServerConfig;
 /// # let certs = vec![];
 /// # let private_key = pki_types::PrivateKeyDer::from(
 /// #    pki_types::PrivatePkcs8KeyDer::from(vec![])

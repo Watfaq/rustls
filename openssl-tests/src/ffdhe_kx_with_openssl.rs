@@ -4,11 +4,11 @@ use std::sync::Arc;
 use std::{fs, str, thread};
 
 use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
-use rustls::crypto::{aws_lc_rs as provider, CryptoProvider};
-use rustls::pki_types::pem::PemObject;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
-use rustls::version::{TLS12, TLS13};
-use rustls::{ClientConfig, RootCertStore, ServerConfig, SupportedProtocolVersion};
+use watfaq_rustls::crypto::{aws_lc_rs as provider, CryptoProvider};
+use watfaq_rustls::pki_types::pem::PemObject;
+use watfaq_rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use watfaq_rustls::version::{TLS12, TLS13};
+use watfaq_rustls::{ClientConfig, RootCertStore, ServerConfig, SupportedProtocolVersion};
 
 use crate::ffdhe::{self, FfdheKxGroup};
 use crate::utils::verify_openssl3_available;
@@ -37,7 +37,7 @@ fn test_rustls_server_with_ffdhe_kx(
     let server_thread = std::thread::spawn(move || {
         let config = Arc::new(server_config_with_ffdhe_kx(protocol_version));
         for _ in 0..iters {
-            let mut server = rustls::ServerConnection::new(config.clone()).unwrap();
+            let mut server = watfaq_rustls::ServerConnection::new(config.clone()).unwrap();
             let (mut tcp_stream, _addr) = listener.accept().unwrap();
             server
                 .writer()
@@ -124,7 +124,7 @@ fn test_rustls_client_with_ffdhe_kx(iters: usize) {
     // client:
     for _ in 0..iters {
         let mut tcp_stream = std::net::TcpStream::connect(("localhost", port)).unwrap();
-        let mut client = rustls::client::ClientConnection::new(
+        let mut client = watfaq_rustls::client::ClientConnection::new(
             client_config_with_ffdhe_kx().into(),
             "localhost".try_into().unwrap(),
         )
@@ -201,8 +201,8 @@ fn ffdhe_provider() -> CryptoProvider {
             provider::cipher_suite::TLS13_AES_128_GCM_SHA256,
         ],
         kx_groups: vec![&FfdheKxGroup(
-            rustls::NamedGroup::FFDHE2048,
-            rustls::ffdhe_groups::FFDHE2048,
+            watfaq_rustls::NamedGroup::FFDHE2048,
+            watfaq_rustls::ffdhe_groups::FFDHE2048,
         )],
         ..provider::default_provider()
     }

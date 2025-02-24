@@ -28,11 +28,11 @@ use std::{fs, net};
 use clap::{Parser, Subcommand};
 use log::{debug, error};
 use mio::net::{TcpListener, TcpStream};
-use rustls::crypto::{aws_lc_rs as provider, CryptoProvider};
-use rustls::pki_types::pem::PemObject;
-use rustls::pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer};
-use rustls::server::WebPkiClientVerifier;
-use rustls::RootCertStore;
+use watfaq_rustls::crypto::{aws_lc_rs as provider, CryptoProvider};
+use watfaq_rustls::pki_types::pem::PemObject;
+use watfaq_rustls::pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer};
+use watfaq_rustls::server::WebPkiClientVerifier;
+use watfaq_rustls::RootCertStore;
 
 // Token for our listening socket.
 const LISTENER: mio::Token = mio::Token(0);
@@ -57,12 +57,12 @@ struct TlsServer {
     server: TcpListener,
     connections: HashMap<mio::Token, OpenConnection>,
     next_id: usize,
-    tls_config: Arc<rustls::ServerConfig>,
+    tls_config: Arc<watfaq_rustls::ServerConfig>,
     mode: ServerMode,
 }
 
 impl TlsServer {
-    fn new(server: TcpListener, mode: ServerMode, cfg: Arc<rustls::ServerConfig>) -> Self {
+    fn new(server: TcpListener, mode: ServerMode, cfg: Arc<watfaq_rustls::ServerConfig>) -> Self {
         Self {
             server,
             connections: HashMap::new(),
@@ -79,7 +79,7 @@ impl TlsServer {
                     debug!("Accepting new connection from {:?}", addr);
 
                     let tls_conn =
-                        rustls::ServerConnection::new(Arc::clone(&self.tls_config)).unwrap();
+                        watfaq_rustls::ServerConnection::new(Arc::clone(&self.tls_config)).unwrap();
                     let mode = self.mode.clone();
 
                     let token = mio::Token(self.next_id);
@@ -129,7 +129,7 @@ struct OpenConnection {
     closing: bool,
     closed: bool,
     mode: ServerMode,
-    tls_conn: rustls::ServerConnection,
+    tls_conn: watfaq_rustls::ServerConnection,
     back: Option<TcpStream>,
     sent_http_response: bool,
 }
@@ -166,7 +166,7 @@ impl OpenConnection {
         socket: TcpStream,
         token: mio::Token,
         mode: ServerMode,
-        tls_conn: rustls::ServerConnection,
+        tls_conn: watfaq_rustls::ServerConnection,
     ) -> Self {
         let back = open_back(&mode);
         Self {
@@ -475,7 +475,7 @@ struct Args {
     max_early_data: u32,
 }
 
-fn find_suite(name: &str) -> Option<rustls::SupportedCipherSuite> {
+fn find_suite(name: &str) -> Option<watfaq_rustls::SupportedCipherSuite> {
     for suite in provider::ALL_CIPHER_SUITES {
         let sname = format!("{:?}", suite.suite()).to_lowercase();
 
@@ -487,7 +487,7 @@ fn find_suite(name: &str) -> Option<rustls::SupportedCipherSuite> {
     None
 }
 
-fn lookup_suites(suites: &[String]) -> Vec<rustls::SupportedCipherSuite> {
+fn lookup_suites(suites: &[String]) -> Vec<watfaq_rustls::SupportedCipherSuite> {
     let mut out = Vec::new();
 
     for csname in suites {
@@ -502,13 +502,13 @@ fn lookup_suites(suites: &[String]) -> Vec<rustls::SupportedCipherSuite> {
 }
 
 /// Make a vector of protocol versions named in `versions`
-fn lookup_versions(versions: &[String]) -> Vec<&'static rustls::SupportedProtocolVersion> {
+fn lookup_versions(versions: &[String]) -> Vec<&'static watfaq_rustls::SupportedProtocolVersion> {
     let mut out = Vec::new();
 
     for vname in versions {
         let version = match vname.as_ref() {
-            "1.2" => &rustls::version::TLS12,
-            "1.3" => &rustls::version::TLS13,
+            "1.2" => &watfaq_rustls::version::TLS12,
+            "1.3" => &watfaq_rustls::version::TLS13,
             _ => panic!(
                 "cannot look up version '{}', valid are '1.2' and '1.3'",
                 vname
@@ -554,7 +554,7 @@ fn load_crls(
         .collect()
 }
 
-fn make_config(args: &Args) -> Arc<rustls::ServerConfig> {
+fn make_config(args: &Args) -> Arc<watfaq_rustls::ServerConfig> {
     let client_auth = if let Some(auth) = &args.auth {
         let roots = load_certs(auth);
         let mut client_auth_roots = RootCertStore::empty();
@@ -587,14 +587,14 @@ fn make_config(args: &Args) -> Arc<rustls::ServerConfig> {
     let versions = if !args.protover.is_empty() {
         lookup_versions(&args.protover)
     } else {
-        rustls::ALL_VERSIONS.to_vec()
+        watfaq_rustls::ALL_VERSIONS.to_vec()
     };
 
     let certs = load_certs(&args.certs);
     let privkey = load_private_key(&args.key);
     let ocsp = load_ocsp(args.ocsp.as_deref());
 
-    let mut config = rustls::ServerConfig::builder_with_provider(
+    let mut config = watfaq_rustls::ServerConfig::builder_with_provider(
         CryptoProvider {
             cipher_suites: suites,
             ..provider::default_provider()
@@ -607,10 +607,10 @@ fn make_config(args: &Args) -> Arc<rustls::ServerConfig> {
     .with_single_cert_with_ocsp(certs, privkey, ocsp)
     .expect("bad certificates/private key");
 
-    config.key_log = Arc::new(rustls::KeyLogFile::new());
+    config.key_log = Arc::new(watfaq_rustls::KeyLogFile::new());
 
     if args.no_resumption {
-        config.session_storage = Arc::new(rustls::server::NoServerSessionStorage {});
+        config.session_storage = Arc::new(watfaq_rustls::server::NoServerSessionStorage {});
     }
 
     if args.tickets {
@@ -618,7 +618,7 @@ fn make_config(args: &Args) -> Arc<rustls::ServerConfig> {
     }
 
     if args.max_early_data > 0 {
-        if !versions.contains(&&rustls::version::TLS13) {
+        if !versions.contains(&&watfaq_rustls::version::TLS13) {
             panic!("Early data is only available for servers supporting TLS1.3");
         }
         if args.no_resumption {

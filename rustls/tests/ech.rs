@@ -1,8 +1,8 @@
 use base64::prelude::{Engine, BASE64_STANDARD};
 use pki_types::DnsName;
-use rustls::internal::msgs::codec::{Codec, Reader};
-use rustls::internal::msgs::enums::{EchVersion, HpkeAead, HpkeKdf, HpkeKem};
-use rustls::internal::msgs::handshake::{
+use watfaq_rustls::internal::msgs::codec::{Codec, Reader};
+use watfaq_rustls::internal::msgs::enums::{EchVersion, HpkeAead, HpkeKdf, HpkeKem};
+use watfaq_rustls::internal::msgs::handshake::{
     EchConfigContents, EchConfigPayload, HpkeKeyConfig, HpkeSymmetricCipherSuite,
 };
 

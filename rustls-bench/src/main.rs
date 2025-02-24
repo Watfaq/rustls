@@ -12,16 +12,16 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{mem, thread};
 
 use clap::{Parser, ValueEnum};
-use rustls::client::{Resumption, UnbufferedClientConnection};
-use rustls::crypto::CryptoProvider;
-use rustls::pki_types::pem::PemObject;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
-use rustls::server::{
+use watfaq_rustls::client::{Resumption, UnbufferedClientConnection};
+use watfaq_rustls::crypto::CryptoProvider;
+use watfaq_rustls::pki_types::pem::PemObject;
+use watfaq_rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use watfaq_rustls::server::{
     NoServerSessionStorage, ProducesTickets, ServerSessionMemoryCache, UnbufferedServerConnection,
     WebPkiClientVerifier,
 };
-use rustls::unbuffered::{ConnectionState, EncryptError, InsufficientSizeError, UnbufferedStatus};
-use rustls::{
+use watfaq_rustls::unbuffered::{ConnectionState, EncryptError, InsufficientSizeError, UnbufferedStatus};
+use watfaq_rustls::{
     CipherSuite, ClientConfig, ClientConnection, ConnectionCommon, Error, HandshakeKind,
     RootCertStore, ServerConfig, ServerConnection, SideData,
 };
@@ -942,13 +942,13 @@ impl Provider {
     fn build(self) -> CryptoProvider {
         match self {
             #[cfg(feature = "aws-lc-rs")]
-            Self::AwsLcRs => rustls::crypto::aws_lc_rs::default_provider(),
+            Self::AwsLcRs => watfaq_rustls::crypto::aws_lc_rs::default_provider(),
             #[cfg(all(feature = "aws-lc-rs", feature = "fips"))]
-            Self::AwsLcRsFips => rustls::crypto::default_fips_provider(),
+            Self::AwsLcRsFips => watfaq_rustls::crypto::default_fips_provider(),
             #[cfg(feature = "post-quantum")]
             Self::PostQuantum => rustls_post_quantum::provider(),
             #[cfg(feature = "ring")]
-            Self::Ring => rustls::crypto::ring::default_provider(),
+            Self::Ring => watfaq_rustls::crypto::ring::default_provider(),
             Self::_None => unreachable!(),
         }
     }
@@ -956,18 +956,18 @@ impl Provider {
     fn ticketer(self) -> Result<Arc<dyn ProducesTickets>, Error> {
         match self {
             #[cfg(feature = "aws-lc-rs")]
-            Self::AwsLcRs => rustls::crypto::aws_lc_rs::Ticketer::new(),
+            Self::AwsLcRs => watfaq_rustls::crypto::aws_lc_rs::Ticketer::new(),
             #[cfg(all(feature = "aws-lc-rs", feature = "fips"))]
-            Self::AwsLcRsFips => rustls::crypto::aws_lc_rs::Ticketer::new(),
+            Self::AwsLcRsFips => watfaq_rustls::crypto::aws_lc_rs::Ticketer::new(),
             #[cfg(feature = "post-quantum")]
-            Self::PostQuantum => rustls::crypto::aws_lc_rs::Ticketer::new(),
+            Self::PostQuantum => watfaq_rustls::crypto::aws_lc_rs::Ticketer::new(),
             #[cfg(feature = "ring")]
-            Self::Ring => rustls::crypto::ring::Ticketer::new(),
+            Self::Ring => watfaq_rustls::crypto::ring::Ticketer::new(),
             Self::_None => unreachable!(),
         }
     }
 
-    fn find_suite(&self, name: CipherSuite) -> Vec<rustls::SupportedCipherSuite> {
+    fn find_suite(&self, name: CipherSuite) -> Vec<watfaq_rustls::SupportedCipherSuite> {
         let mut provider = self.build();
         provider
             .cipher_suites
@@ -1017,15 +1017,15 @@ impl Provider {
 #[derive(Clone)]
 struct BenchmarkParam {
     key_type: KeyType,
-    ciphersuite: rustls::CipherSuite,
-    version: &'static rustls::SupportedProtocolVersion,
+    ciphersuite: watfaq_rustls::CipherSuite,
+    version: &'static watfaq_rustls::SupportedProtocolVersion,
 }
 
 impl BenchmarkParam {
     const fn new(
         key_type: KeyType,
-        ciphersuite: rustls::CipherSuite,
-        version: &'static rustls::SupportedProtocolVersion,
+        ciphersuite: watfaq_rustls::CipherSuite,
+        version: &'static watfaq_rustls::SupportedProtocolVersion,
     ) -> Self {
         Self {
             key_type,
@@ -1446,72 +1446,72 @@ static ALL_BENCHMARKS: &[BenchmarkParam] = &[
     BenchmarkParam::new(
         KeyType::Rsa2048,
         CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
-        &rustls::version::TLS12,
+        &watfaq_rustls::version::TLS12,
     ),
     BenchmarkParam::new(
         KeyType::EcdsaP256,
         CipherSuite::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
-        &rustls::version::TLS12,
+        &watfaq_rustls::version::TLS12,
     ),
     BenchmarkParam::new(
         KeyType::Rsa2048,
         CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-        &rustls::version::TLS12,
+        &watfaq_rustls::version::TLS12,
     ),
     BenchmarkParam::new(
         KeyType::Rsa2048,
         CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-        &rustls::version::TLS12,
+        &watfaq_rustls::version::TLS12,
     ),
     BenchmarkParam::new(
         KeyType::EcdsaP256,
         CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-        &rustls::version::TLS12,
+        &watfaq_rustls::version::TLS12,
     ),
     BenchmarkParam::new(
         KeyType::EcdsaP384,
         CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-        &rustls::version::TLS12,
+        &watfaq_rustls::version::TLS12,
     ),
     BenchmarkParam::new(
         KeyType::Ed25519,
         CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-        &rustls::version::TLS12,
+        &watfaq_rustls::version::TLS12,
     ),
     BenchmarkParam::new(
         KeyType::Rsa2048,
         CipherSuite::TLS13_CHACHA20_POLY1305_SHA256,
-        &rustls::version::TLS13,
+        &watfaq_rustls::version::TLS13,
     ),
     BenchmarkParam::new(
         KeyType::Rsa2048,
         CipherSuite::TLS13_AES_256_GCM_SHA384,
-        &rustls::version::TLS13,
+        &watfaq_rustls::version::TLS13,
     ),
     BenchmarkParam::new(
         KeyType::EcdsaP256,
         CipherSuite::TLS13_AES_256_GCM_SHA384,
-        &rustls::version::TLS13,
+        &watfaq_rustls::version::TLS13,
     ),
     BenchmarkParam::new(
         KeyType::Ed25519,
         CipherSuite::TLS13_AES_256_GCM_SHA384,
-        &rustls::version::TLS13,
+        &watfaq_rustls::version::TLS13,
     ),
     BenchmarkParam::new(
         KeyType::Rsa2048,
         CipherSuite::TLS13_AES_128_GCM_SHA256,
-        &rustls::version::TLS13,
+        &watfaq_rustls::version::TLS13,
     ),
     BenchmarkParam::new(
         KeyType::EcdsaP256,
         CipherSuite::TLS13_AES_128_GCM_SHA256,
-        &rustls::version::TLS13,
+        &watfaq_rustls::version::TLS13,
     ),
     BenchmarkParam::new(
         KeyType::Ed25519,
         CipherSuite::TLS13_AES_128_GCM_SHA256,
-        &rustls::version::TLS13,
+        &watfaq_rustls::version::TLS13,
     ),
 ];
 

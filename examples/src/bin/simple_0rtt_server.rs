@@ -18,8 +18,8 @@ use std::net::TcpListener;
 use std::sync::Arc;
 use std::{env, io};
 
-use rustls::pki_types::pem::PemObject;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use watfaq_rustls::pki_types::pem::PemObject;
+use watfaq_rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
 fn main() -> Result<(), Box<dyn StdError>> {
     let mut args = env::args();
@@ -38,7 +38,7 @@ fn main() -> Result<(), Box<dyn StdError>> {
     let private_key =
         PrivateKeyDer::from_pem_file(private_key_file).expect("cannot open private key file");
 
-    let mut config = rustls::ServerConfig::builder()
+    let mut config = watfaq_rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(certs, private_key)?;
     config.max_early_data_size = 1000;
@@ -50,7 +50,7 @@ fn main() -> Result<(), Box<dyn StdError>> {
 
         println!("Accepting connection");
 
-        let mut conn = rustls::ServerConnection::new(Arc::new(config.clone()))?;
+        let mut conn = watfaq_rustls::ServerConnection::new(Arc::new(config.clone()))?;
 
         let mut buf = Vec::new();
         let mut did_early_data = false;

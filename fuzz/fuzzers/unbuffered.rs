@@ -3,10 +3,10 @@
 extern crate libfuzzer_sys;
 extern crate rustls;
 
-use rustls::client::UnbufferedClientConnection;
-use rustls::server::UnbufferedServerConnection;
-use rustls::unbuffered::{ConnectionState, UnbufferedStatus};
-use rustls::{ClientConfig, ServerConfig, SideData};
+use watfaq_rustls::client::UnbufferedClientConnection;
+use watfaq_rustls::server::UnbufferedServerConnection;
+use watfaq_rustls::unbuffered::{ConnectionState, UnbufferedStatus};
+use watfaq_rustls::{ClientConfig, ServerConfig, SideData};
 
 fuzz_target!(|data: &[u8]| {
     let _ = env_logger::try_init();

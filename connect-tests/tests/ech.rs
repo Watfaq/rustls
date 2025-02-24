@@ -3,9 +3,9 @@ mod ech_config {
     use hickory_resolver::proto::rr::rdata::svcb::{SvcParamKey, SvcParamValue};
     use hickory_resolver::proto::rr::{RData, RecordType};
     use hickory_resolver::{Resolver, TokioResolver};
-    use rustls::internal::msgs::codec::{Codec, Reader};
-    use rustls::internal::msgs::handshake::EchConfigPayload;
-    use rustls::pki_types::EchConfigListBytes;
+    use watfaq_rustls::internal::msgs::codec::{Codec, Reader};
+    use watfaq_rustls::internal::msgs::handshake::EchConfigPayload;
+    use watfaq_rustls::pki_types::EchConfigListBytes;
 
     #[tokio::test]
     async fn cloudflare() {

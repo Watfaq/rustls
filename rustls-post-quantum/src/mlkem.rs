@@ -1,7 +1,7 @@
 use aws_lc_rs::kem;
-use rustls::crypto::{ActiveKeyExchange, CompletedKeyExchange, SharedSecret, SupportedKxGroup};
-use rustls::ffdhe_groups::FfdheGroup;
-use rustls::{Error, NamedGroup, ProtocolVersion};
+use watfaq_rustls::crypto::{ActiveKeyExchange, CompletedKeyExchange, SharedSecret, SupportedKxGroup};
+use watfaq_rustls::ffdhe_groups::FfdheGroup;
+use watfaq_rustls::{Error, NamedGroup, ProtocolVersion};
 
 use crate::INVALID_KEY_SHARE;
 

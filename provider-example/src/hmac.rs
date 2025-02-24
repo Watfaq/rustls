@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 
 use hmac::{Hmac, Mac};
-use rustls::crypto;
+use watfaq_rustls::crypto;
 use sha2::{Digest, Sha256};
 
 pub struct Sha256Hmac;

@@ -3,9 +3,9 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use pkcs8::DecodePrivateKey;
-use rustls::pki_types::PrivateKeyDer;
-use rustls::sign::{Signer, SigningKey};
-use rustls::{SignatureAlgorithm, SignatureScheme};
+use watfaq_rustls::pki_types::PrivateKeyDer;
+use watfaq_rustls::sign::{Signer, SigningKey};
+use watfaq_rustls::{SignatureAlgorithm, SignatureScheme};
 use signature::{RandomizedSigner, SignatureEncoding};
 
 #[derive(Clone, Debug)]
@@ -45,10 +45,10 @@ impl SigningKey for EcdsaSigningKeyP256 {
 }
 
 impl Signer for EcdsaSigningKeyP256 {
-    fn sign(&self, message: &[u8]) -> Result<Vec<u8>, rustls::Error> {
+    fn sign(&self, message: &[u8]) -> Result<Vec<u8>, watfaq_rustls::Error> {
         self.key
             .try_sign_with_rng(&mut rand_core::OsRng, message)
-            .map_err(|_| rustls::Error::General("signing failed".into()))
+            .map_err(|_| watfaq_rustls::Error::General("signing failed".into()))
             .map(|sig: p256::ecdsa::DerSignature| sig.to_vec())
     }
 

@@ -6,13 +6,13 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::Arc;
 
-use rustls::client::{ClientConnectionData, EarlyDataError, UnbufferedClientConnection};
-use rustls::unbuffered::{
+use watfaq_rustls::client::{ClientConnectionData, EarlyDataError, UnbufferedClientConnection};
+use watfaq_rustls::unbuffered::{
     AppDataRecord, ConnectionState, EncodeError, EncryptError, InsufficientSizeError,
     UnbufferedStatus, WriteTraffic,
 };
-use rustls::version::TLS13;
-use rustls::{ClientConfig, RootCertStore};
+use watfaq_rustls::version::TLS13;
+use watfaq_rustls::{ClientConfig, RootCertStore};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let root_store = RootCertStore {

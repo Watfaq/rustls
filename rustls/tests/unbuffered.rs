@@ -3,14 +3,14 @@
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-use rustls::client::{ClientConnectionData, EarlyDataError, UnbufferedClientConnection};
-use rustls::server::{ServerConnectionData, UnbufferedServerConnection};
-use rustls::unbuffered::{
+use watfaq_rustls::client::{ClientConnectionData, EarlyDataError, UnbufferedClientConnection};
+use watfaq_rustls::server::{ServerConnectionData, UnbufferedServerConnection};
+use watfaq_rustls::unbuffered::{
     ConnectionState, EncodeError, EncryptError, InsufficientSizeError, UnbufferedConnectionCommon,
     UnbufferedStatus, WriteTraffic,
 };
-use rustls::version::TLS13;
-use rustls::{
+use watfaq_rustls::version::TLS13;
+use watfaq_rustls::{
     AlertDescription, CertificateError, ClientConfig, Error, InvalidMessage, ServerConfig, SideData,
 };
 
@@ -23,7 +23,7 @@ const MAX_ITERATIONS: usize = 100;
 
 #[test]
 fn tls12_handshake() {
-    let outcome = handshake(&rustls::version::TLS12);
+    let outcome = handshake(&watfaq_rustls::version::TLS12);
     assert_eq!(
         outcome.client_transcript,
         vec![
@@ -60,7 +60,7 @@ fn tls12_handshake() {
 
 #[test]
 fn tls12_handshake_fragmented() {
-    let outcome = handshake_config(&rustls::version::TLS12, |client, server| {
+    let outcome = handshake_config(&watfaq_rustls::version::TLS12, |client, server| {
         client.max_fragment_size = Some(512);
         client.cert_decompressors = vec![];
         server.max_fragment_size = Some(512);
@@ -111,7 +111,7 @@ fn tls12_handshake_fragmented() {
 
 #[test]
 fn tls13_handshake() {
-    let outcome = handshake(&rustls::version::TLS13);
+    let outcome = handshake(&watfaq_rustls::version::TLS13);
     assert_eq!(
         outcome.client_transcript,
         vec![
@@ -146,7 +146,7 @@ fn tls13_handshake() {
 
 #[test]
 fn tls13_handshake_fragmented() {
-    let outcome = handshake_config(&rustls::version::TLS13, |client, server| {
+    let outcome = handshake_config(&watfaq_rustls::version::TLS13, |client, server| {
         client.max_fragment_size = Some(512);
         client.cert_decompressors = vec![];
         server.max_fragment_size = Some(512);
@@ -193,12 +193,12 @@ fn tls13_handshake_fragmented() {
     );
 }
 
-fn handshake(version: &'static rustls::SupportedProtocolVersion) -> Outcome {
+fn handshake(version: &'static watfaq_rustls::SupportedProtocolVersion) -> Outcome {
     handshake_config(version, |_, _| ())
 }
 
 fn handshake_config(
-    version: &'static rustls::SupportedProtocolVersion,
+    version: &'static watfaq_rustls::SupportedProtocolVersion,
     editor: impl Fn(&mut ClientConfig, &mut ServerConfig),
 ) -> Outcome {
     let mut server_config = make_server_config_with_versions(KeyType::Rsa2048, &[version]);
@@ -216,7 +216,7 @@ fn handshake_config(
 #[test]
 fn app_data_client_to_server() {
     let expected: &[_] = b"hello";
-    for version in rustls::ALL_VERSIONS {
+    for version in watfaq_rustls::ALL_VERSIONS {
         eprintln!("{version:?}");
         let server_config = make_server_config_with_versions(KeyType::Rsa2048, &[version]);
         let client_config = make_client_config(KeyType::Rsa2048);
@@ -248,7 +248,7 @@ fn app_data_client_to_server() {
 #[test]
 fn app_data_server_to_client() {
     let expected: &[_] = b"hello";
-    for version in rustls::ALL_VERSIONS {
+    for version in watfaq_rustls::ALL_VERSIONS {
         eprintln!("{version:?}");
         let server_config = make_server_config_with_versions(KeyType::Rsa2048, &[version]);
         let client_config = make_client_config(KeyType::Rsa2048);
@@ -506,7 +506,7 @@ fn run(
 
 #[test]
 fn close_notify_client_to_server() {
-    for version in rustls::ALL_VERSIONS {
+    for version in watfaq_rustls::ALL_VERSIONS {
         eprintln!("{version:?}");
         let server_config = make_server_config_with_versions(KeyType::Rsa2048, &[version]);
         let client_config = make_client_config(KeyType::Rsa2048);
@@ -530,7 +530,7 @@ fn close_notify_client_to_server() {
 
 #[test]
 fn close_notify_server_to_client() {
-    for version in rustls::ALL_VERSIONS {
+    for version in watfaq_rustls::ALL_VERSIONS {
         eprintln!("{version:?}");
         let server_config = make_server_config_with_versions(KeyType::Rsa2048, &[version]);
         let client_config = make_client_config(KeyType::Rsa2048);
@@ -555,7 +555,7 @@ fn close_notify_server_to_client() {
 #[test]
 fn junk_after_close_notify_received() {
     // cf. test_junk_after_close_notify_received in api.rs
-    let mut outcome = handshake(&rustls::version::TLS13);
+    let mut outcome = handshake(&watfaq_rustls::version::TLS13);
     let mut client = outcome.client.take().unwrap();
     let mut server = outcome.server.take().unwrap();
 
@@ -590,7 +590,7 @@ fn junk_after_close_notify_received() {
 
 #[test]
 fn queue_close_notify_is_idempotent() {
-    let mut outcome = handshake(&rustls::version::TLS13);
+    let mut outcome = handshake(&watfaq_rustls::version::TLS13);
     let mut client = outcome.client.take().unwrap();
 
     let mut client_send_buf = [0u8; 128];
@@ -610,7 +610,7 @@ fn queue_close_notify_is_idempotent() {
 
 #[test]
 fn refresh_traffic_keys_on_tls12_connection() {
-    let mut outcome = handshake(&rustls::version::TLS12);
+    let mut outcome = handshake(&watfaq_rustls::version::TLS12);
     let mut client = outcome.client.take().unwrap();
 
     match client.process_tls_records(&mut []) {
@@ -631,7 +631,7 @@ fn refresh_traffic_keys_on_tls12_connection() {
 
 #[test]
 fn refresh_traffic_keys_manually() {
-    let mut outcome = handshake(&rustls::version::TLS13);
+    let mut outcome = handshake(&watfaq_rustls::version::TLS13);
     let mut client = outcome.client.take().unwrap();
     let mut server = outcome.server.take().unwrap();
 
@@ -816,7 +816,7 @@ fn tls12_connection_fails_after_key_reaches_confidentiality_limit() {
     let client_config = finish_client_config(
         KeyType::Ed25519,
         ClientConfig::builder_with_provider(aes_128_gcm_with_1024_confidentiality_limit())
-            .with_protocol_versions(&[&rustls::version::TLS12])
+            .with_protocol_versions(&[&watfaq_rustls::version::TLS12])
             .unwrap(),
     );
 
@@ -1349,7 +1349,7 @@ impl Buffer {
 }
 
 fn make_connection_pair(
-    version: &'static rustls::SupportedProtocolVersion,
+    version: &'static watfaq_rustls::SupportedProtocolVersion,
 ) -> (UnbufferedClientConnection, UnbufferedServerConnection) {
     let server_config = make_server_config(KeyType::Rsa2048);
     let client_config = make_client_config_with_versions(KeyType::Rsa2048, &[version]);

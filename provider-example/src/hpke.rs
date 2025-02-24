@@ -5,14 +5,14 @@ use core::fmt::Debug;
 use hpke_rs_crypto::types::{AeadAlgorithm, KdfAlgorithm, KemAlgorithm};
 use hpke_rs_crypto::HpkeCrypto;
 use hpke_rs_rust_crypto::HpkeRustCrypto;
-use rustls::crypto::hpke::{
+use watfaq_rustls::crypto::hpke::{
     EncapsulatedSecret, Hpke, HpkeOpener, HpkePrivateKey, HpkePublicKey, HpkeSealer, HpkeSuite,
 };
-use rustls::internal::msgs::enums::{
+use watfaq_rustls::internal::msgs::enums::{
     HpkeAead as HpkeAeadId, HpkeKdf as HpkeKdfId, HpkeKem as HpkeKemId, HpkeKem,
 };
-use rustls::internal::msgs::handshake::HpkeSymmetricCipherSuite;
-use rustls::{Error, OtherError};
+use watfaq_rustls::internal::msgs::handshake::HpkeSymmetricCipherSuite;
+use watfaq_rustls::{Error, OtherError};
 
 /// All supported HPKE suites.
 ///

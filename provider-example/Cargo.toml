@@ -17,7 +17,7 @@ hpke-rs-rust-crypto = { workspace = true }
 p256 = { workspace = true }
 pkcs8 = { workspace = true }
 rand_core = { workspace = true }
-rustls = { path = "../rustls", default-features = false, features = ["logging", "tls12"] }
+watfaq-rustls = { path = "../rustls", default-features = false, features = ["logging", "tls12"] }
 rsa = { workspace = true }
 sha2 = { workspace = true }
 signature = { workspace = true }
@@ -31,4 +31,4 @@ webpki-roots = { workspace = true }
 
 [features]
 default = ["std"]
-std = ["hpke-rs/std", "hpke-rs-crypto/std", "pkcs8/std", "rustls/std"]
+std = ["hpke-rs/std", "hpke-rs-crypto/std", "pkcs8/std", "watfaq-rustls/std"]

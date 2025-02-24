@@ -26,10 +26,10 @@ use std::{process, str};
 
 use clap::Parser;
 use mio::net::TcpStream;
-use rustls::crypto::{aws_lc_rs as provider, CryptoProvider};
-use rustls::pki_types::pem::PemObject;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
-use rustls::RootCertStore;
+use watfaq_rustls::crypto::{aws_lc_rs as provider, CryptoProvider};
+use watfaq_rustls::pki_types::pem::PemObject;
+use watfaq_rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
+use watfaq_rustls::RootCertStore;
 
 const CLIENT: mio::Token = mio::Token(0);
 
@@ -39,20 +39,20 @@ struct TlsClient {
     socket: TcpStream,
     closing: bool,
     clean_closure: bool,
-    tls_conn: rustls::ClientConnection,
+    tls_conn: watfaq_rustls::ClientConnection,
 }
 
 impl TlsClient {
     fn new(
         sock: TcpStream,
         server_name: ServerName<'static>,
-        cfg: Arc<rustls::ClientConfig>,
+        cfg: Arc<watfaq_rustls::ClientConfig>,
     ) -> Self {
         Self {
             socket: sock,
             closing: false,
             clean_closure: false,
-            tls_conn: rustls::ClientConnection::new(cfg, server_name).unwrap(),
+            tls_conn: watfaq_rustls::ClientConnection::new(cfg, server_name).unwrap(),
         }
     }
 
@@ -271,7 +271,7 @@ struct Args {
 }
 
 /// Find a ciphersuite with the given name
-fn find_suite(name: &str) -> Option<rustls::SupportedCipherSuite> {
+fn find_suite(name: &str) -> Option<watfaq_rustls::SupportedCipherSuite> {
     for suite in provider::ALL_CIPHER_SUITES {
         let sname = format!("{:?}", suite.suite()).to_lowercase();
 
@@ -284,7 +284,7 @@ fn find_suite(name: &str) -> Option<rustls::SupportedCipherSuite> {
 }
 
 /// Make a vector of ciphersuites named in `suites`
-fn lookup_suites(suites: &[String]) -> Vec<rustls::SupportedCipherSuite> {
+fn lookup_suites(suites: &[String]) -> Vec<watfaq_rustls::SupportedCipherSuite> {
     let mut out = Vec::new();
 
     for csname in suites {
@@ -299,13 +299,13 @@ fn lookup_suites(suites: &[String]) -> Vec<rustls::SupportedCipherSuite> {
 }
 
 /// Make a vector of protocol versions named in `versions`
-fn lookup_versions(versions: &[String]) -> Vec<&'static rustls::SupportedProtocolVersion> {
+fn lookup_versions(versions: &[String]) -> Vec<&'static watfaq_rustls::SupportedProtocolVersion> {
     let mut out = Vec::new();
 
     for vname in versions {
         let version = match vname.as_ref() {
-            "1.2" => &rustls::version::TLS12,
-            "1.3" => &rustls::version::TLS13,
+            "1.2" => &watfaq_rustls::version::TLS12,
+            "1.3" => &watfaq_rustls::version::TLS13,
             _ => panic!(
                 "cannot look up version '{}', valid are '1.2' and '1.3'",
                 vname
@@ -329,10 +329,10 @@ fn load_private_key(filename: &str) -> PrivateKeyDer<'static> {
 }
 
 mod danger {
-    use rustls::client::danger::HandshakeSignatureValid;
-    use rustls::crypto::{verify_tls12_signature, verify_tls13_signature, CryptoProvider};
-    use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
-    use rustls::DigitallySignedStruct;
+    use watfaq_rustls::client::danger::HandshakeSignatureValid;
+    use watfaq_rustls::crypto::{verify_tls12_signature, verify_tls13_signature, CryptoProvider};
+    use watfaq_rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+    use watfaq_rustls::DigitallySignedStruct;
 
     #[derive(Debug)]
     pub struct NoCertificateVerification(CryptoProvider);
@@ -343,7 +343,7 @@ mod danger {
         }
     }
 
-    impl rustls::client::danger::ServerCertVerifier for NoCertificateVerification {
+    impl watfaq_rustls::client::danger::ServerCertVerifier for NoCertificateVerification {
         fn verify_server_cert(
             &self,
             _end_entity: &CertificateDer<'_>,
@@ -351,8 +351,8 @@ mod danger {
             _server_name: &ServerName<'_>,
             _ocsp: &[u8],
             _now: UnixTime,
-        ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-            Ok(rustls::client::danger::ServerCertVerified::assertion())
+        ) -> Result<watfaq_rustls::client::danger::ServerCertVerified, watfaq_rustls::Error> {
+            Ok(watfaq_rustls::client::danger::ServerCertVerified::assertion())
         }
 
         fn verify_tls12_signature(
@@ -360,7 +360,7 @@ mod danger {
             message: &[u8],
             cert: &CertificateDer<'_>,
             dss: &DigitallySignedStruct,
-        ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        ) -> Result<HandshakeSignatureValid, watfaq_rustls::Error> {
             verify_tls12_signature(
                 message,
                 cert,
@@ -374,7 +374,7 @@ mod danger {
             message: &[u8],
             cert: &CertificateDer<'_>,
             dss: &DigitallySignedStruct,
-        ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        ) -> Result<HandshakeSignatureValid, watfaq_rustls::Error> {
             verify_tls13_signature(
                 message,
                 cert,
@@ -383,7 +383,7 @@ mod danger {
             )
         }
 
-        fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        fn supported_verify_schemes(&self) -> Vec<watfaq_rustls::SignatureScheme> {
             self.0
                 .signature_verification_algorithms
                 .supported_schemes()
@@ -392,7 +392,7 @@ mod danger {
 }
 
 /// Build a `ClientConfig` from our arguments
-fn make_config(args: &Args) -> Arc<rustls::ClientConfig> {
+fn make_config(args: &Args) -> Arc<watfaq_rustls::ClientConfig> {
     let mut root_store = RootCertStore::empty();
 
     if let Some(cafile) = args.cafile.as_ref() {
@@ -418,10 +418,10 @@ fn make_config(args: &Args) -> Arc<rustls::ClientConfig> {
     let versions = if !args.protover.is_empty() {
         lookup_versions(&args.protover)
     } else {
-        rustls::DEFAULT_VERSIONS.to_vec()
+        watfaq_rustls::DEFAULT_VERSIONS.to_vec()
     };
 
-    let config = rustls::ClientConfig::builder_with_provider(
+    let config = watfaq_rustls::ClientConfig::builder_with_provider(
         CryptoProvider {
             cipher_suites: suites,
             ..provider::default_provider()
@@ -446,12 +446,12 @@ fn make_config(args: &Args) -> Arc<rustls::ClientConfig> {
         }
     };
 
-    config.key_log = Arc::new(rustls::KeyLogFile::new());
+    config.key_log = Arc::new(watfaq_rustls::KeyLogFile::new());
 
     if args.no_tickets {
         config.resumption = config
             .resumption
-            .tls12_resumption(rustls::client::Tls12Resumption::SessionIdOnly);
+            .tls12_resumption(watfaq_rustls::client::Tls12Resumption::SessionIdOnly);
     }
 
     if args.no_sni {

@@ -201,8 +201,8 @@ impl ClientCertVerifierBuilder {
 /// To require all clients present a client certificate issued by a trusted CA:
 /// ```no_run
 /// # #[cfg(any(feature = "ring", feature = "aws_lc_rs"))] {
-/// # use rustls::RootCertStore;
-/// # use rustls::server::WebPkiClientVerifier;
+/// # use watfaq_rustls::RootCertStore;
+/// # use watfaq_rustls::server::WebPkiClientVerifier;
 /// # let roots = RootCertStore::empty();
 /// let client_verifier = WebPkiClientVerifier::builder(roots.into())
 ///   .build()
@@ -214,8 +214,8 @@ impl ClientCertVerifierBuilder {
 /// anonymous clients that present no client certificate:
 /// ```no_run
 /// # #[cfg(any(feature = "ring", feature = "aws_lc_rs"))] {
-/// # use rustls::RootCertStore;
-/// # use rustls::server::WebPkiClientVerifier;
+/// # use watfaq_rustls::RootCertStore;
+/// # use watfaq_rustls::server::WebPkiClientVerifier;
 /// # let roots = RootCertStore::empty();
 /// let client_verifier = WebPkiClientVerifier::builder(roots.into())
 ///   .allow_unauthenticated()
@@ -226,8 +226,8 @@ impl ClientCertVerifierBuilder {
 ///
 /// If you wish to disable advertising client authentication:
 /// ```no_run
-/// # use rustls::RootCertStore;
-/// # use rustls::server::WebPkiClientVerifier;
+/// # use watfaq_rustls::RootCertStore;
+/// # use watfaq_rustls::server::WebPkiClientVerifier;
 /// # let roots = RootCertStore::empty();
 /// let client_verifier = WebPkiClientVerifier::no_client_auth();
 /// ```
@@ -236,8 +236,8 @@ impl ClientCertVerifierBuilder {
 /// client certificate revocation lists (CRLs):
 /// ```no_run
 /// # #[cfg(any(feature = "ring", feature = "aws_lc_rs"))] {
-/// # use rustls::RootCertStore;
-/// # use rustls::server::{WebPkiClientVerifier};
+/// # use watfaq_rustls::RootCertStore;
+/// # use watfaq_rustls::server::{WebPkiClientVerifier};
 /// # let roots = RootCertStore::empty();
 /// # let crls = Vec::new();
 /// let client_verifier = WebPkiClientVerifier::builder(roots.into())

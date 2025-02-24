@@ -9,18 +9,18 @@ mod client {
     use std::net::TcpStream;
     use std::sync::Arc;
 
-    use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-    use rustls::client::AlwaysResolvesClientRawPublicKeys;
-    use rustls::crypto::{
+    use watfaq_rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+    use watfaq_rustls::client::AlwaysResolvesClientRawPublicKeys;
+    use watfaq_rustls::crypto::{
         aws_lc_rs as provider, verify_tls13_signature_with_raw_key, WebPkiSupportedAlgorithms,
     };
-    use rustls::pki_types::pem::PemObject;
-    use rustls::pki_types::{
+    use watfaq_rustls::pki_types::pem::PemObject;
+    use watfaq_rustls::pki_types::{
         CertificateDer, PrivateKeyDer, ServerName, SubjectPublicKeyInfoDer, UnixTime,
     };
-    use rustls::sign::CertifiedKey;
-    use rustls::version::TLS13;
-    use rustls::{
+    use watfaq_rustls::sign::CertifiedKey;
+    use watfaq_rustls::version::TLS13;
+    use watfaq_rustls::{
         CertificateError, ClientConfig, ClientConnection, DigitallySignedStruct, Error,
         InconsistentKeys, PeerIncompatible, SignatureScheme, Stream,
     };
@@ -107,13 +107,13 @@ mod client {
             _server_name: &ServerName<'_>,
             _ocsp_response: &[u8],
             _now: UnixTime,
-        ) -> Result<ServerCertVerified, rustls::Error> {
+        ) -> Result<ServerCertVerified, watfaq_rustls::Error> {
             let end_entity_as_spki = SubjectPublicKeyInfoDer::from(end_entity.as_ref());
             match self
                 .trusted_spki
                 .contains(&end_entity_as_spki)
             {
-                false => Err(rustls::Error::InvalidCertificate(
+                false => Err(watfaq_rustls::Error::InvalidCertificate(
                     CertificateError::UnknownIssuer,
                 )),
                 true => Ok(ServerCertVerified::assertion()),
@@ -125,8 +125,8 @@ mod client {
             _message: &[u8],
             _cert: &CertificateDer<'_>,
             _dss: &DigitallySignedStruct,
-        ) -> Result<HandshakeSignatureValid, rustls::Error> {
-            Err(rustls::Error::PeerIncompatible(
+        ) -> Result<HandshakeSignatureValid, watfaq_rustls::Error> {
+            Err(watfaq_rustls::Error::PeerIncompatible(
                 PeerIncompatible::Tls12NotOffered,
             ))
         }
@@ -136,7 +136,7 @@ mod client {
             message: &[u8],
             cert: &CertificateDer<'_>,
             dss: &DigitallySignedStruct,
-        ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        ) -> Result<HandshakeSignatureValid, watfaq_rustls::Error> {
             verify_tls13_signature_with_raw_key(
                 message,
                 &SubjectPublicKeyInfoDer::from(cert.as_ref()),
@@ -160,17 +160,17 @@ mod server {
     use std::net::TcpListener;
     use std::sync::Arc;
 
-    use rustls::client::danger::HandshakeSignatureValid;
-    use rustls::crypto::{
+    use watfaq_rustls::client::danger::HandshakeSignatureValid;
+    use watfaq_rustls::crypto::{
         aws_lc_rs as provider, verify_tls13_signature_with_raw_key, WebPkiSupportedAlgorithms,
     };
-    use rustls::pki_types::pem::PemObject;
-    use rustls::pki_types::{CertificateDer, PrivateKeyDer, SubjectPublicKeyInfoDer, UnixTime};
-    use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
-    use rustls::server::AlwaysResolvesServerRawPublicKeys;
-    use rustls::sign::CertifiedKey;
-    use rustls::version::TLS13;
-    use rustls::{
+    use watfaq_rustls::pki_types::pem::PemObject;
+    use watfaq_rustls::pki_types::{CertificateDer, PrivateKeyDer, SubjectPublicKeyInfoDer, UnixTime};
+    use watfaq_rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
+    use watfaq_rustls::server::AlwaysResolvesServerRawPublicKeys;
+    use watfaq_rustls::sign::CertifiedKey;
+    use watfaq_rustls::version::TLS13;
+    use watfaq_rustls::{
         CertificateError, DigitallySignedStruct, DistinguishedName, Error, InconsistentKeys,
         PeerIncompatible, ServerConfig, ServerConnection, SignatureScheme,
     };
@@ -274,13 +274,13 @@ mod server {
             end_entity: &CertificateDer<'_>,
             _intermediates: &[CertificateDer<'_>],
             _now: UnixTime,
-        ) -> Result<ClientCertVerified, rustls::Error> {
+        ) -> Result<ClientCertVerified, watfaq_rustls::Error> {
             let end_entity_as_spki = SubjectPublicKeyInfoDer::from(end_entity.as_ref());
             match self
                 .trusted_spki
                 .contains(&end_entity_as_spki)
             {
-                false => Err(rustls::Error::InvalidCertificate(
+                false => Err(watfaq_rustls::Error::InvalidCertificate(
                     CertificateError::UnknownIssuer,
                 )),
                 true => Ok(ClientCertVerified::assertion()),
@@ -292,8 +292,8 @@ mod server {
             _message: &[u8],
             _cert: &CertificateDer<'_>,
             _dss: &DigitallySignedStruct,
-        ) -> Result<HandshakeSignatureValid, rustls::Error> {
-            Err(rustls::Error::PeerIncompatible(
+        ) -> Result<HandshakeSignatureValid, watfaq_rustls::Error> {
+            Err(watfaq_rustls::Error::PeerIncompatible(
                 PeerIncompatible::Tls12NotOffered,
             ))
         }
@@ -303,7 +303,7 @@ mod server {
             message: &[u8],
             cert: &CertificateDer<'_>,
             dss: &DigitallySignedStruct,
-        ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        ) -> Result<HandshakeSignatureValid, watfaq_rustls::Error> {
             verify_tls13_signature_with_raw_key(
                 message,
                 &SubjectPublicKeyInfoDer::from(cert.as_ref()),

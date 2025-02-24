@@ -3,8 +3,8 @@
 extern crate libfuzzer_sys;
 extern crate rustls;
 
-use rustls::internal::msgs::codec::{Codec, Reader};
-use rustls::internal::msgs::persist;
+use watfaq_rustls::internal::msgs::codec::{Codec, Reader};
+use watfaq_rustls::internal::msgs::persist;
 
 fn try_type<T>(data: &[u8])
 where

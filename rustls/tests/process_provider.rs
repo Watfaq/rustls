@@ -5,13 +5,13 @@
 //! to doing all the desired tests, in series, in one function.
 
 #[cfg(all(feature = "aws_lc_rs", not(feature = "ring")))]
-use rustls::crypto::aws_lc_rs as provider;
+use watfaq_rustls::crypto::aws_lc_rs as provider;
 #[cfg(all(feature = "ring", not(feature = "aws_lc_rs")))]
-use rustls::crypto::ring as provider;
+use watfaq_rustls::crypto::ring as provider;
 #[cfg(all(feature = "ring", feature = "aws_lc_rs"))]
-use rustls::crypto::ring as provider;
-use rustls::crypto::CryptoProvider;
-use rustls::ClientConfig;
+use watfaq_rustls::crypto::ring as provider;
+use watfaq_rustls::crypto::CryptoProvider;
+use watfaq_rustls::ClientConfig;
 
 mod common;
 use crate::common::*;

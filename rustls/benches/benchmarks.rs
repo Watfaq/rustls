@@ -1,14 +1,14 @@
 #![cfg(feature = "ring")]
 
 use bencher::{benchmark_group, benchmark_main, Bencher};
-use rustls::crypto::ring as provider;
+use watfaq_rustls::crypto::ring as provider;
 
 #[path = "../tests/common/mod.rs"]
 mod test_utils;
 use std::io;
 use std::sync::Arc;
 
-use rustls::ServerConnection;
+use watfaq_rustls::ServerConnection;
 use test_utils::*;
 
 fn bench_ewouldblock(c: &mut Bencher) {

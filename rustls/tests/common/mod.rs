@@ -10,20 +10,20 @@ use pki_types::{
     CertificateDer, CertificateRevocationListDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName,
     SubjectPublicKeyInfoDer, UnixTime,
 };
-use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-use rustls::client::{
+use watfaq_rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use watfaq_rustls::client::{
     AlwaysResolvesClientRawPublicKeys, ServerCertVerifierBuilder, WebPkiServerVerifier,
 };
-use rustls::crypto::cipher::{InboundOpaqueMessage, MessageDecrypter, MessageEncrypter};
-use rustls::crypto::{verify_tls13_signature_with_raw_key, CryptoProvider};
-use rustls::internal::msgs::codec::{Codec, Reader};
-use rustls::internal::msgs::message::{Message, OutboundOpaqueMessage, PlainMessage};
-use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
-use rustls::server::{
+use watfaq_rustls::crypto::cipher::{InboundOpaqueMessage, MessageDecrypter, MessageEncrypter};
+use watfaq_rustls::crypto::{verify_tls13_signature_with_raw_key, CryptoProvider};
+use watfaq_rustls::internal::msgs::codec::{Codec, Reader};
+use watfaq_rustls::internal::msgs::message::{Message, OutboundOpaqueMessage, PlainMessage};
+use watfaq_rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
+use watfaq_rustls::server::{
     AlwaysResolvesServerRawPublicKeys, ClientCertVerifierBuilder, WebPkiClientVerifier,
 };
-use rustls::sign::CertifiedKey;
-use rustls::{
+use watfaq_rustls::sign::CertifiedKey;
+use watfaq_rustls::{
     ClientConfig, ClientConnection, Connection, ConnectionCommon, ContentType,
     DigitallySignedStruct, DistinguishedName, Error, InconsistentKeys, NamedGroup, ProtocolVersion,
     RootCertStore, ServerConfig, ServerConnection, SideData, SignatureScheme, SupportedCipherSuite,
@@ -433,49 +433,49 @@ impl KeyType {
     }
 }
 
-pub fn server_config_builder() -> rustls::ConfigBuilder<ServerConfig, rustls::WantsVerifier> {
+pub fn server_config_builder() -> watfaq_rustls::ConfigBuilder<ServerConfig, watfaq_rustls::WantsVerifier> {
     // ensure `ServerConfig::builder()` is covered, even though it is
     // equivalent to `builder_with_provider(provider::provider().into())`.
     if exactly_one_provider() {
-        rustls::ServerConfig::builder()
+        watfaq_rustls::ServerConfig::builder()
     } else {
-        rustls::ServerConfig::builder_with_provider(provider::default_provider().into())
+        watfaq_rustls::ServerConfig::builder_with_provider(provider::default_provider().into())
             .with_safe_default_protocol_versions()
             .unwrap()
     }
 }
 
 pub fn server_config_builder_with_versions(
-    versions: &[&'static rustls::SupportedProtocolVersion],
-) -> rustls::ConfigBuilder<ServerConfig, rustls::WantsVerifier> {
+    versions: &[&'static watfaq_rustls::SupportedProtocolVersion],
+) -> watfaq_rustls::ConfigBuilder<ServerConfig, watfaq_rustls::WantsVerifier> {
     if exactly_one_provider() {
-        rustls::ServerConfig::builder_with_protocol_versions(versions)
+        watfaq_rustls::ServerConfig::builder_with_protocol_versions(versions)
     } else {
-        rustls::ServerConfig::builder_with_provider(provider::default_provider().into())
+        watfaq_rustls::ServerConfig::builder_with_provider(provider::default_provider().into())
             .with_protocol_versions(versions)
             .unwrap()
     }
 }
 
-pub fn client_config_builder() -> rustls::ConfigBuilder<ClientConfig, rustls::WantsVerifier> {
+pub fn client_config_builder() -> watfaq_rustls::ConfigBuilder<ClientConfig, watfaq_rustls::WantsVerifier> {
     // ensure `ClientConfig::builder()` is covered, even though it is
     // equivalent to `builder_with_provider(provider::provider().into())`.
     if exactly_one_provider() {
-        rustls::ClientConfig::builder()
+        watfaq_rustls::ClientConfig::builder()
     } else {
-        rustls::ClientConfig::builder_with_provider(provider::default_provider().into())
+        watfaq_rustls::ClientConfig::builder_with_provider(provider::default_provider().into())
             .with_safe_default_protocol_versions()
             .unwrap()
     }
 }
 
 pub fn client_config_builder_with_versions(
-    versions: &[&'static rustls::SupportedProtocolVersion],
-) -> rustls::ConfigBuilder<ClientConfig, rustls::WantsVerifier> {
+    versions: &[&'static watfaq_rustls::SupportedProtocolVersion],
+) -> watfaq_rustls::ConfigBuilder<ClientConfig, watfaq_rustls::WantsVerifier> {
     if exactly_one_provider() {
-        rustls::ClientConfig::builder_with_protocol_versions(versions)
+        watfaq_rustls::ClientConfig::builder_with_protocol_versions(versions)
     } else {
-        rustls::ClientConfig::builder_with_provider(provider::default_provider().into())
+        watfaq_rustls::ClientConfig::builder_with_provider(provider::default_provider().into())
             .with_protocol_versions(versions)
             .unwrap()
     }
@@ -483,7 +483,7 @@ pub fn client_config_builder_with_versions(
 
 pub fn finish_server_config(
     kt: KeyType,
-    conf: rustls::ConfigBuilder<ServerConfig, rustls::WantsVerifier>,
+    conf: watfaq_rustls::ConfigBuilder<ServerConfig, watfaq_rustls::WantsVerifier>,
 ) -> ServerConfig {
     conf.with_no_client_auth()
         .with_single_cert(kt.get_chain(), kt.get_key())
@@ -496,14 +496,14 @@ pub fn make_server_config(kt: KeyType) -> ServerConfig {
 
 pub fn make_server_config_with_versions(
     kt: KeyType,
-    versions: &[&'static rustls::SupportedProtocolVersion],
+    versions: &[&'static watfaq_rustls::SupportedProtocolVersion],
 ) -> ServerConfig {
     finish_server_config(kt, server_config_builder_with_versions(versions))
 }
 
 pub fn make_server_config_with_kx_groups(
     kt: KeyType,
-    kx_groups: Vec<&'static dyn rustls::crypto::SupportedKxGroup>,
+    kx_groups: Vec<&'static dyn watfaq_rustls::crypto::SupportedKxGroup>,
 ) -> ServerConfig {
     finish_server_config(
         kt,
@@ -580,7 +580,7 @@ pub fn make_server_config_with_raw_key_support(kt: KeyType) -> ServerConfig {
     ));
     client_verifier.expect_raw_public_keys = true;
     // We don't support tls1.2 for Raw Public Keys, hence the version is hard-coded.
-    server_config_builder_with_versions(&[&rustls::version::TLS13])
+    server_config_builder_with_versions(&[&watfaq_rustls::version::TLS13])
         .with_client_cert_verifier(Arc::new(client_verifier))
         .with_cert_resolver(server_cert_resolver)
 }
@@ -591,7 +591,7 @@ pub fn make_client_config_with_raw_key_support(kt: KeyType) -> ClientConfig {
         kt.get_certified_client_key().unwrap(),
     ));
     // We don't support tls1.2 for Raw Public Keys, hence the version is hard-coded.
-    client_config_builder_with_versions(&[&rustls::version::TLS13])
+    client_config_builder_with_versions(&[&watfaq_rustls::version::TLS13])
         .dangerous()
         .with_custom_certificate_verifier(server_verifier)
         .with_client_cert_resolver(client_cert_resolver)
@@ -612,7 +612,7 @@ pub fn make_client_config_with_cipher_suite_and_raw_key_support(
         }
         .into(),
     )
-    .with_protocol_versions(&[&rustls::version::TLS13])
+    .with_protocol_versions(&[&watfaq_rustls::version::TLS13])
     .unwrap()
     .dangerous()
     .with_custom_certificate_verifier(server_verifier)
@@ -621,7 +621,7 @@ pub fn make_client_config_with_cipher_suite_and_raw_key_support(
 
 pub fn finish_client_config(
     kt: KeyType,
-    config: rustls::ConfigBuilder<ClientConfig, rustls::WantsVerifier>,
+    config: watfaq_rustls::ConfigBuilder<ClientConfig, watfaq_rustls::WantsVerifier>,
 ) -> ClientConfig {
     let mut root_store = RootCertStore::empty();
     root_store.add_parsable_certificates(
@@ -635,7 +635,7 @@ pub fn finish_client_config(
 
 pub fn finish_client_config_with_creds(
     kt: KeyType,
-    config: rustls::ConfigBuilder<ClientConfig, rustls::WantsVerifier>,
+    config: watfaq_rustls::ConfigBuilder<ClientConfig, watfaq_rustls::WantsVerifier>,
 ) -> ClientConfig {
     let mut root_store = RootCertStore::empty();
     root_store.add_parsable_certificates(
@@ -654,7 +654,7 @@ pub fn make_client_config(kt: KeyType) -> ClientConfig {
 
 pub fn make_client_config_with_kx_groups(
     kt: KeyType,
-    kx_groups: Vec<&'static dyn rustls::crypto::SupportedKxGroup>,
+    kx_groups: Vec<&'static dyn watfaq_rustls::crypto::SupportedKxGroup>,
 ) -> ClientConfig {
     let builder = ClientConfig::builder_with_provider(
         CryptoProvider {
@@ -670,7 +670,7 @@ pub fn make_client_config_with_kx_groups(
 
 pub fn make_client_config_with_versions(
     kt: KeyType,
-    versions: &[&'static rustls::SupportedProtocolVersion],
+    versions: &[&'static watfaq_rustls::SupportedProtocolVersion],
 ) -> ClientConfig {
     finish_client_config(kt, client_config_builder_with_versions(versions))
 }
@@ -681,13 +681,13 @@ pub fn make_client_config_with_auth(kt: KeyType) -> ClientConfig {
 
 pub fn make_client_config_with_versions_with_auth(
     kt: KeyType,
-    versions: &[&'static rustls::SupportedProtocolVersion],
+    versions: &[&'static watfaq_rustls::SupportedProtocolVersion],
 ) -> ClientConfig {
     finish_client_config_with_creds(kt, client_config_builder_with_versions(versions))
 }
 
 pub fn make_client_config_with_verifier(
-    versions: &[&'static rustls::SupportedProtocolVersion],
+    versions: &[&'static watfaq_rustls::SupportedProtocolVersion],
     verifier_builder: ServerCertVerifierBuilder,
 ) -> ClientConfig {
     client_config_builder_with_versions(versions)
@@ -1236,20 +1236,20 @@ impl RawTls {
         )
     }
 
-    fn new(suite: SupportedCipherSuite, secrets: rustls::ExtractedSecrets) -> Self {
-        let rustls::ExtractedSecrets {
+    fn new(suite: SupportedCipherSuite, secrets: watfaq_rustls::ExtractedSecrets) -> Self {
+        let watfaq_rustls::ExtractedSecrets {
             tx: (tx_seq, tx_keys),
             rx: (rx_seq, rx_keys),
         } = secrets;
 
         let encrypter = match (tx_keys, suite) {
             (
-                rustls::ConnectionTrafficSecrets::Aes256Gcm { key, iv },
+                watfaq_rustls::ConnectionTrafficSecrets::Aes256Gcm { key, iv },
                 SupportedCipherSuite::Tls13(tls13),
             ) => tls13.aead_alg.encrypter(key, iv),
 
             (
-                rustls::ConnectionTrafficSecrets::Aes256Gcm { key, iv },
+                watfaq_rustls::ConnectionTrafficSecrets::Aes256Gcm { key, iv },
                 SupportedCipherSuite::Tls12(tls12),
             ) => tls12
                 .aead_alg
@@ -1260,12 +1260,12 @@ impl RawTls {
 
         let decrypter = match (rx_keys, suite) {
             (
-                rustls::ConnectionTrafficSecrets::Aes256Gcm { key, iv },
+                watfaq_rustls::ConnectionTrafficSecrets::Aes256Gcm { key, iv },
                 SupportedCipherSuite::Tls13(tls13),
             ) => tls13.aead_alg.decrypter(key, iv),
 
             (
-                rustls::ConnectionTrafficSecrets::Aes256Gcm { key, iv },
+                watfaq_rustls::ConnectionTrafficSecrets::Aes256Gcm { key, iv },
                 SupportedCipherSuite::Tls12(tls12),
             ) => tls12
                 .aead_alg
@@ -1331,16 +1331,16 @@ pub fn aes_128_gcm_with_1024_confidentiality_limit() -> Arc<CryptoProvider> {
     const CONFIDENTIALITY_LIMIT: u64 = 1024;
 
     // needed to extend lifetime of Tls13CipherSuite to 'static
-    static TLS13_LIMITED_SUITE: OnceLock<rustls::Tls13CipherSuite> = OnceLock::new();
-    static TLS12_LIMITED_SUITE: OnceLock<rustls::Tls12CipherSuite> = OnceLock::new();
+    static TLS13_LIMITED_SUITE: OnceLock<watfaq_rustls::Tls13CipherSuite> = OnceLock::new();
+    static TLS12_LIMITED_SUITE: OnceLock<watfaq_rustls::Tls12CipherSuite> = OnceLock::new();
 
     let tls13_limited = TLS13_LIMITED_SUITE.get_or_init(|| {
         let tls13 = provider::cipher_suite::TLS13_AES_128_GCM_SHA256
             .tls13()
             .unwrap();
 
-        rustls::Tls13CipherSuite {
-            common: rustls::crypto::CipherSuiteCommon {
+        watfaq_rustls::Tls13CipherSuite {
+            common: watfaq_rustls::crypto::CipherSuiteCommon {
                 confidentiality_limit: CONFIDENTIALITY_LIMIT,
                 ..tls13.common
             },
@@ -1355,8 +1355,8 @@ pub fn aes_128_gcm_with_1024_confidentiality_limit() -> Arc<CryptoProvider> {
             unreachable!();
         };
 
-        rustls::Tls12CipherSuite {
-            common: rustls::crypto::CipherSuiteCommon {
+        watfaq_rustls::Tls12CipherSuite {
+            common: watfaq_rustls::crypto::CipherSuiteCommon {
                 confidentiality_limit: CONFIDENTIALITY_LIMIT,
                 ..tls12.common
             },
@@ -1375,16 +1375,16 @@ pub fn aes_128_gcm_with_1024_confidentiality_limit() -> Arc<CryptoProvider> {
 }
 
 pub fn unsafe_plaintext_crypto_provider() -> Arc<CryptoProvider> {
-    static TLS13_PLAIN_SUITE: OnceLock<rustls::Tls13CipherSuite> = OnceLock::new();
+    static TLS13_PLAIN_SUITE: OnceLock<watfaq_rustls::Tls13CipherSuite> = OnceLock::new();
 
     let tls13 = TLS13_PLAIN_SUITE.get_or_init(|| {
         let tls13 = provider::cipher_suite::TLS13_AES_256_GCM_SHA384
             .tls13()
             .unwrap();
 
-        rustls::Tls13CipherSuite {
+        watfaq_rustls::Tls13CipherSuite {
             aead_alg: &plaintext::Aead,
-            common: rustls::crypto::CipherSuiteCommon { ..tls13.common },
+            common: watfaq_rustls::crypto::CipherSuiteCommon { ..tls13.common },
             ..*tls13
         }
     });
@@ -1397,11 +1397,11 @@ pub fn unsafe_plaintext_crypto_provider() -> Arc<CryptoProvider> {
 }
 
 mod plaintext {
-    use rustls::crypto::cipher::{
+    use watfaq_rustls::crypto::cipher::{
         AeadKey, InboundOpaqueMessage, InboundPlainMessage, Iv, MessageDecrypter, MessageEncrypter,
         OutboundPlainMessage, PrefixedPayload, Tls13AeadAlgorithm, UnsupportedOperationError,
     };
-    use rustls::ConnectionTrafficSecrets;
+    use watfaq_rustls::ConnectionTrafficSecrets;
 
     use super::*;
 

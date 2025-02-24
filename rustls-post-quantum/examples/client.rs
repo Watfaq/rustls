@@ -17,20 +17,20 @@ fn main() {
         .install_default()
         .unwrap();
 
-    let root_store = rustls::RootCertStore {
+    let root_store = watfaq_rustls::RootCertStore {
         roots: webpki_roots::TLS_SERVER_ROOTS.into(),
     };
 
-    let config = rustls::ClientConfig::builder()
+    let config = watfaq_rustls::ClientConfig::builder()
         .with_root_certificates(root_store)
         .with_no_client_auth();
 
     let server_name = "pq.cloudflareresearch.com"
         .try_into()
         .unwrap();
-    let mut conn = rustls::ClientConnection::new(Arc::new(config), server_name).unwrap();
+    let mut conn = watfaq_rustls::ClientConnection::new(Arc::new(config), server_name).unwrap();
     let mut sock = TcpStream::connect("pq.cloudflareresearch.com:443").unwrap();
-    let mut tls = rustls::Stream::new(&mut conn, &mut sock);
+    let mut tls = watfaq_rustls::Stream::new(&mut conn, &mut sock);
     tls.write_all(
         concat!(
             "GET /cdn-cgi/trace HTTP/1.0\r\n",

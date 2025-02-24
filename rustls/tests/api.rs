@@ -10,19 +10,19 @@ use std::sync::{Arc, Mutex};
 use std::{fmt, mem};
 
 use pki_types::{CertificateDer, IpAddr, ServerName, UnixTime};
-use rustls::client::{verify_server_cert_signed_by_trust_anchor, ResolvesClientCert, Resumption};
-use rustls::crypto::{ActiveKeyExchange, CryptoProvider, SharedSecret, SupportedKxGroup};
-use rustls::internal::msgs::base::Payload;
-use rustls::internal::msgs::codec::Codec;
-use rustls::internal::msgs::enums::{AlertLevel, CertificateType, Compression};
-use rustls::internal::msgs::handshake::{
+use watfaq_rustls::client::{verify_server_cert_signed_by_trust_anchor, ResolvesClientCert, Resumption};
+use watfaq_rustls::crypto::{ActiveKeyExchange, CryptoProvider, SharedSecret, SupportedKxGroup};
+use watfaq_rustls::internal::msgs::base::Payload;
+use watfaq_rustls::internal::msgs::codec::Codec;
+use watfaq_rustls::internal::msgs::enums::{AlertLevel, CertificateType, Compression};
+use watfaq_rustls::internal::msgs::handshake::{
     ClientExtension, ClientHelloPayload, HandshakeMessagePayload, HandshakePayload, Random,
     ServerExtension, ServerName as ServerNameExtensionItem, SessionId,
 };
-use rustls::internal::msgs::message::{Message, MessagePayload, PlainMessage};
-use rustls::server::{ClientHello, ParsedCertificate, ResolvesServerCert};
+use watfaq_rustls::internal::msgs::message::{Message, MessagePayload, PlainMessage};
+use watfaq_rustls::server::{ClientHello, ParsedCertificate, ResolvesServerCert};
 #[cfg(feature = "aws_lc_rs")]
-use rustls::{
+use watfaq_rustls::{
     client::{EchConfig, EchGreaseConfig, EchMode},
     crypto::aws_lc_rs::hpke::ALL_SUPPORTED_SUITES,
     internal::msgs::base::PayloadU16,
@@ -31,7 +31,7 @@ use rustls::{
     },
     pki_types::{DnsName, EchConfigListBytes},
 };
-use rustls::{
+use watfaq_rustls::{
     sign, AlertDescription, CertificateError, CipherSuite, ClientConfig, ClientConnection,
     ConnectionCommon, ConnectionTrafficSecrets, ContentType, DistinguishedName, Error,
     HandshakeKind, HandshakeType, InconsistentKeys, InvalidMessage, KeyLog, NamedGroup,
@@ -45,16 +45,16 @@ mod common;
 use common::*;
 use provider::cipher_suite;
 use provider::sign::RsaSigningKey;
-use rustls::ProtocolVersion::TLSv1_2;
+use watfaq_rustls::ProtocolVersion::TLSv1_2;
 
 mod test_raw_keys {
-    use rustls::crypto::cipher::{
+    use watfaq_rustls::crypto::cipher::{
         InboundOpaqueMessage, MessageDecrypter, MessageEncrypter, OutboundChunks,
         OutboundPlainMessage,
     };
-    use rustls::crypto::tls13::OkmBlock;
-    use rustls::internal::{derive_traffic_iv, derive_traffic_key};
-    use rustls::{Connection, Tls13CipherSuite};
+    use watfaq_rustls::crypto::tls13::OkmBlock;
+    use watfaq_rustls::internal::{derive_traffic_iv, derive_traffic_key};
+    use watfaq_rustls::{Connection, Tls13CipherSuite};
 
     use super::*;
 
@@ -140,7 +140,7 @@ mod test_raw_keys {
     #[test]
     fn only_server_supports_raw_keys() {
         for kt in ALL_KEY_TYPES {
-            let client_config = make_client_config_with_versions(*kt, &[&rustls::version::TLS13]);
+            let client_config = make_client_config_with_versions(*kt, &[&watfaq_rustls::version::TLS13]);
             let server_config_rpk = make_server_config_with_raw_key_support(*kt);
 
             let (mut client, mut server_rpk) =
@@ -456,7 +456,7 @@ fn alpn_test_error(
 
     let server_config = Arc::new(server_config);
 
-    for version in rustls::ALL_VERSIONS {
+    for version in watfaq_rustls::ALL_VERSIONS {
         let mut client_config = make_client_config_with_versions(KeyType::Rsa2048, &[version]);
         client_config
             .alpn_protocols
@@ -514,17 +514,17 @@ fn alpn() {
 }
 
 fn version_test(
-    client_versions: &[&'static rustls::SupportedProtocolVersion],
-    server_versions: &[&'static rustls::SupportedProtocolVersion],
+    client_versions: &[&'static watfaq_rustls::SupportedProtocolVersion],
+    server_versions: &[&'static watfaq_rustls::SupportedProtocolVersion],
     result: Option<ProtocolVersion>,
 ) {
     let client_versions = if client_versions.is_empty() {
-        rustls::ALL_VERSIONS
+        watfaq_rustls::ALL_VERSIONS
     } else {
         client_versions
     };
     let server_versions = if server_versions.is_empty() {
-        rustls::ALL_VERSIONS
+        watfaq_rustls::ALL_VERSIONS
     } else {
         server_versions
     };
@@ -560,39 +560,39 @@ fn versions() {
     #[cfg(feature = "tls12")]
     version_test(
         &[],
-        &[&rustls::version::TLS12],
+        &[&watfaq_rustls::version::TLS12],
         Some(ProtocolVersion::TLSv1_2),
     );
 
     // client 1.2, server default -> 1.2
     #[cfg(feature = "tls12")]
     version_test(
-        &[&rustls::version::TLS12],
+        &[&watfaq_rustls::version::TLS12],
         &[],
         Some(ProtocolVersion::TLSv1_2),
     );
 
     // client 1.2, server 1.3 -> fail
     #[cfg(feature = "tls12")]
-    version_test(&[&rustls::version::TLS12], &[&rustls::version::TLS13], None);
+    version_test(&[&watfaq_rustls::version::TLS12], &[&watfaq_rustls::version::TLS13], None);
 
     // client 1.3, server 1.2 -> fail
     #[cfg(feature = "tls12")]
-    version_test(&[&rustls::version::TLS13], &[&rustls::version::TLS12], None);
+    version_test(&[&watfaq_rustls::version::TLS13], &[&watfaq_rustls::version::TLS12], None);
 
     // client 1.3, server 1.2+1.3 -> 1.3
     #[cfg(feature = "tls12")]
     version_test(
-        &[&rustls::version::TLS13],
-        &[&rustls::version::TLS12, &rustls::version::TLS13],
+        &[&watfaq_rustls::version::TLS13],
+        &[&watfaq_rustls::version::TLS12, &watfaq_rustls::version::TLS13],
         Some(ProtocolVersion::TLSv1_3),
     );
 
     // client 1.2+1.3, server 1.2 -> 1.2
     #[cfg(feature = "tls12")]
     version_test(
-        &[&rustls::version::TLS13, &rustls::version::TLS12],
-        &[&rustls::version::TLS12],
+        &[&watfaq_rustls::version::TLS13, &watfaq_rustls::version::TLS12],
+        &[&watfaq_rustls::version::TLS12],
         Some(ProtocolVersion::TLSv1_2),
     );
 }
@@ -676,7 +676,7 @@ fn config_builder_for_client_rejects_incompatible_cipher_suites() {
             }
             .into()
         )
-        .with_protocol_versions(&[&rustls::version::TLS12])
+        .with_protocol_versions(&[&watfaq_rustls::version::TLS12])
         .err(),
         Some(Error::General("no usable cipher suites configured".into()))
     );
@@ -725,7 +725,7 @@ fn config_builder_for_server_rejects_incompatible_cipher_suites() {
             }
             .into()
         )
-        .with_protocol_versions(&[&rustls::version::TLS12])
+        .with_protocol_versions(&[&watfaq_rustls::version::TLS12])
         .err(),
         Some(Error::General("no usable cipher suites configured".into()))
     );
@@ -735,7 +735,7 @@ fn config_builder_for_server_rejects_incompatible_cipher_suites() {
 fn config_builder_for_client_with_time() {
     ClientConfig::builder_with_details(
         provider::default_provider().into(),
-        Arc::new(rustls::time_provider::DefaultTimeProvider),
+        Arc::new(watfaq_rustls::time_provider::DefaultTimeProvider),
     )
     .with_safe_default_protocol_versions()
     .unwrap();
@@ -745,7 +745,7 @@ fn config_builder_for_client_with_time() {
 fn config_builder_for_server_with_time() {
     ServerConfig::builder_with_details(
         provider::default_provider().into(),
-        Arc::new(rustls::time_provider::DefaultTimeProvider),
+        Arc::new(watfaq_rustls::time_provider::DefaultTimeProvider),
     )
     .with_safe_default_protocol_versions()
     .unwrap();
@@ -755,7 +755,7 @@ fn config_builder_for_server_with_time() {
 fn buffered_client_data_sent() {
     let server_config = Arc::new(make_server_config(KeyType::Rsa2048));
 
-    for version in rustls::ALL_VERSIONS {
+    for version in watfaq_rustls::ALL_VERSIONS {
         let client_config = make_client_config_with_versions(KeyType::Rsa2048, &[version]);
         let (mut client, mut server) =
             make_pair_for_arc_configs(&Arc::new(client_config), &server_config);
@@ -774,7 +774,7 @@ fn buffered_client_data_sent() {
 fn buffered_server_data_sent() {
     let server_config = Arc::new(make_server_config(KeyType::Rsa2048));
 
-    for version in rustls::ALL_VERSIONS {
+    for version in watfaq_rustls::ALL_VERSIONS {
         let client_config = make_client_config_with_versions(KeyType::Rsa2048, &[version]);
         let (mut client, mut server) =
             make_pair_for_arc_configs(&Arc::new(client_config), &server_config);
@@ -793,7 +793,7 @@ fn buffered_server_data_sent() {
 fn buffered_both_data_sent() {
     let server_config = Arc::new(make_server_config(KeyType::Rsa2048));
 
-    for version in rustls::ALL_VERSIONS {
+    for version in watfaq_rustls::ALL_VERSIONS {
         let client_config = make_client_config_with_versions(KeyType::Rsa2048, &[version]);
         let (mut client, mut server) =
             make_pair_for_arc_configs(&Arc::new(client_config), &server_config);
@@ -828,7 +828,7 @@ fn buffered_both_data_sent() {
 #[test]
 fn client_can_get_server_cert() {
     for kt in ALL_KEY_TYPES {
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             let client_config = make_client_config_with_versions(*kt, &[version]);
             let (mut client, mut server) =
                 make_pair_for_configs(client_config, make_server_config(*kt));
@@ -844,7 +844,7 @@ fn client_can_get_server_cert() {
 fn client_can_get_server_cert_after_resumption() {
     for kt in ALL_KEY_TYPES {
         let server_config = make_server_config(*kt);
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             let client_config = make_client_config_with_versions(*kt, &[version]);
             let (mut client, mut server) =
                 make_pair_for_configs(client_config.clone(), server_config.clone());
@@ -868,7 +868,7 @@ fn server_can_get_client_cert() {
     for kt in ALL_KEY_TYPES {
         let server_config = Arc::new(make_server_config_with_mandatory_client_auth(*kt));
 
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             let client_config = make_client_config_with_versions_with_auth(*kt, &[version]);
             let (mut client, mut server) =
                 make_pair_for_arc_configs(&Arc::new(client_config), &server_config);
@@ -885,7 +885,7 @@ fn server_can_get_client_cert_after_resumption() {
     for kt in ALL_KEY_TYPES {
         let server_config = Arc::new(make_server_config_with_mandatory_client_auth(*kt));
 
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             let client_config = make_client_config_with_versions_with_auth(*kt, &[version]);
             let client_config = Arc::new(client_config);
             let (mut client, mut server) =
@@ -910,7 +910,7 @@ fn resumption_combinations() {
     };
     for kt in ALL_KEY_TYPES {
         let server_config = make_server_config(*kt);
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             let client_config = make_client_config_with_versions(*kt, &[version]);
             let (mut client, mut server) =
                 make_pair_for_configs(client_config.clone(), server_config.clone());
@@ -981,7 +981,7 @@ fn test_config_builders_debug() {
         .into(),
     );
     let _ = format!("{:?}", b);
-    let b = server_config_builder_with_versions(&[&rustls::version::TLS13]);
+    let b = server_config_builder_with_versions(&[&watfaq_rustls::version::TLS13]);
     let _ = format!("{:?}", b);
     let b = b.with_no_client_auth();
     let _ = format!("{:?}", b);
@@ -995,7 +995,7 @@ fn test_config_builders_debug() {
         .into(),
     );
     let _ = format!("{:?}", b);
-    let b = client_config_builder_with_versions(&[&rustls::version::TLS13]);
+    let b = client_config_builder_with_versions(&[&watfaq_rustls::version::TLS13]);
     let _ = format!("{:?}", b);
 }
 
@@ -1019,7 +1019,7 @@ fn server_allow_any_anonymous_or_authenticated_client() {
             .unwrap();
         let server_config = Arc::new(server_config);
 
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             let client_config = if client_cert_chain.is_some() {
                 make_client_config_with_versions_with_auth(kt, &[version])
             } else {
@@ -1045,7 +1045,7 @@ fn server_close_notify() {
     let kt = KeyType::Rsa2048;
     let server_config = Arc::new(make_server_config_with_mandatory_client_auth(kt));
 
-    for version in rustls::ALL_VERSIONS {
+    for version in watfaq_rustls::ALL_VERSIONS {
         let client_config = make_client_config_with_versions_with_auth(kt, &[version]);
         let (mut client, mut server) =
             make_pair_for_arc_configs(&Arc::new(client_config), &server_config);
@@ -1084,7 +1084,7 @@ fn client_close_notify() {
     let kt = KeyType::Rsa2048;
     let server_config = Arc::new(make_server_config_with_mandatory_client_auth(kt));
 
-    for version in rustls::ALL_VERSIONS {
+    for version in watfaq_rustls::ALL_VERSIONS {
         let client_config = make_client_config_with_versions_with_auth(kt, &[version]);
         let (mut client, mut server) =
             make_pair_for_arc_configs(&Arc::new(client_config), &server_config);
@@ -1123,7 +1123,7 @@ fn server_closes_uncleanly() {
     let kt = KeyType::Rsa2048;
     let server_config = Arc::new(make_server_config(kt));
 
-    for version in rustls::ALL_VERSIONS {
+    for version in watfaq_rustls::ALL_VERSIONS {
         let client_config = make_client_config_with_versions(kt, &[version]);
         let (mut client, mut server) =
             make_pair_for_arc_configs(&Arc::new(client_config), &server_config);
@@ -1168,7 +1168,7 @@ fn client_closes_uncleanly() {
     let kt = KeyType::Rsa2048;
     let server_config = Arc::new(make_server_config(kt));
 
-    for version in rustls::ALL_VERSIONS {
+    for version in watfaq_rustls::ALL_VERSIONS {
         let client_config = make_client_config_with_versions(kt, &[version]);
         let (mut client, mut server) =
             make_pair_for_arc_configs(&Arc::new(client_config), &server_config);
@@ -1514,7 +1514,7 @@ fn check_sni_error(alteration: impl Fn(&mut Message) -> Altered, expected_error:
         transfer_altered(&mut client, &alteration, &mut server);
         assert_eq!(server.process_new_packets(), Err(expected_error.clone()),);
 
-        let rustls::Connection::Server(server_inner) = server else {
+        let watfaq_rustls::Connection::Server(server_inner) = server else {
             unreachable!();
         };
         assert_eq!(None, server_inner.server_name());
@@ -1614,7 +1614,7 @@ fn client_with_sni_disabled_does_not_send_sni() {
         server_config.cert_resolver = Arc::new(ServerCheckNoSni {});
         let server_config = Arc::new(server_config);
 
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             let mut client_config = make_client_config_with_versions(*kt, &[version]);
             client_config.enable_sni = false;
 
@@ -1634,7 +1634,7 @@ fn client_checks_server_certificate_with_given_name() {
     for kt in ALL_KEY_TYPES {
         let server_config = Arc::new(make_server_config(*kt));
 
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             let client_config = make_client_config_with_versions(*kt, &[version]);
             let mut client = ClientConnection::new(
                 Arc::new(client_config),
@@ -1669,7 +1669,7 @@ fn client_checks_server_certificate_with_given_ip_address() {
     for kt in ALL_KEY_TYPES {
         let server_config = Arc::new(make_server_config(*kt));
 
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             let client_config = Arc::new(make_client_config_with_versions(*kt, &[version]));
 
             // positive ipv4 case
@@ -1714,7 +1714,7 @@ fn client_check_server_certificate_ee_revoked() {
             .with_crls(crls)
             .only_check_end_entity_revocation();
 
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             let client_config = make_client_config_with_verifier(&[version], builder.clone());
             let mut client =
                 ClientConnection::new(Arc::new(client_config), server_name("localhost")).unwrap();
@@ -1751,7 +1751,7 @@ fn client_check_server_certificate_ee_unknown_revocation() {
             .only_check_end_entity_revocation()
             .allow_unknown_revocation_status();
 
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             let client_config =
                 make_client_config_with_verifier(&[version], forbid_unknown_verifier.clone());
             let mut client =
@@ -1801,7 +1801,7 @@ fn client_check_server_certificate_intermediate_revoked() {
             .only_check_end_entity_revocation()
             .allow_unknown_revocation_status();
 
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             let client_config =
                 make_client_config_with_verifier(&[version], full_chain_verifier_builder.clone());
             let mut client =
@@ -1849,7 +1849,7 @@ fn client_check_server_certificate_ee_crl_expired() {
             .with_crls(crls)
             .only_check_end_entity_revocation();
 
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             let client_config =
                 make_client_config_with_verifier(&[version], enforce_expiration_builder.clone());
             let mut client =
@@ -1975,7 +1975,7 @@ fn test_client_cert_resolve(
     server_config: Arc<ServerConfig>,
     expected_root_hint_subjects: Vec<Vec<u8>>,
 ) {
-    for version in rustls::ALL_VERSIONS {
+    for version in watfaq_rustls::ALL_VERSIONS {
         println!("{:?} {:?}:", version.version, key_type);
 
         let mut client_config = make_client_config_with_versions(key_type, &[version]);
@@ -2079,7 +2079,7 @@ fn client_auth_works() {
     for kt in ALL_KEY_TYPES {
         let server_config = Arc::new(make_server_config_with_mandatory_client_auth(*kt));
 
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             let client_config = make_client_config_with_versions_with_auth(*kt, &[version]);
             let (mut client, mut server) =
                 make_pair_for_arc_configs(&Arc::new(client_config), &server_config);
@@ -2125,7 +2125,7 @@ fn client_mandatory_auth_client_revocation_works() {
             make_server_config_with_client_verifier(*kt, ee_verifier_builder),
         );
 
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             // Connecting to the server with a CRL that indicates the client certificate is revoked
             // should fail with the expected error.
             let client_config =
@@ -2187,7 +2187,7 @@ fn client_mandatory_auth_intermediate_revocation_works() {
             ee_only_verifier_builder,
         ));
 
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             // When checking the full chain, we expect an error - the intermediate is revoked.
             let client_config =
                 Arc::new(make_client_config_with_versions_with_auth(*kt, &[version]));
@@ -2217,7 +2217,7 @@ fn client_optional_auth_client_revocation_works() {
         let crls = vec![kt.client_crl()];
         let server_config = Arc::new(make_server_config_with_optional_client_auth(*kt, crls));
 
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             let client_config = make_client_config_with_versions_with_auth(*kt, &[version]);
             let (mut client, mut server) =
                 make_pair_for_arc_configs(&Arc::new(client_config), &server_config);
@@ -2456,7 +2456,7 @@ where
     pub writevs: Vec<Vec<usize>>,
     fail_ok: bool,
     pub short_writes: bool,
-    pub last_error: Option<rustls::Error>,
+    pub last_error: Option<watfaq_rustls::Error>,
     pub buffered: bool,
     buffer: Vec<Vec<u8>>,
 }
@@ -3238,7 +3238,7 @@ fn server_complete_io_for_handshake_ending_with_alert() {
 #[test]
 fn server_exposes_offered_sni() {
     let kt = KeyType::Rsa2048;
-    for version in rustls::ALL_VERSIONS {
+    for version in watfaq_rustls::ALL_VERSIONS {
         let client_config = make_client_config_with_versions(kt, &[version]);
         let mut client = ClientConnection::new(
             Arc::new(client_config),
@@ -3257,7 +3257,7 @@ fn server_exposes_offered_sni() {
 fn server_exposes_offered_sni_smashed_to_lowercase() {
     // webpki actually does this for us in its DnsName type
     let kt = KeyType::Rsa2048;
-    for version in rustls::ALL_VERSIONS {
+    for version in watfaq_rustls::ALL_VERSIONS {
         let client_config = make_client_config_with_versions(kt, &[version]);
         let mut client = ClientConnection::new(
             Arc::new(client_config),
@@ -3275,13 +3275,13 @@ fn server_exposes_offered_sni_smashed_to_lowercase() {
 #[test]
 fn server_exposes_offered_sni_even_if_resolver_fails() {
     let kt = KeyType::Rsa2048;
-    let resolver = rustls::server::ResolvesServerCertUsingSni::new();
+    let resolver = watfaq_rustls::server::ResolvesServerCertUsingSni::new();
 
     let mut server_config = make_server_config(kt);
     server_config.cert_resolver = Arc::new(resolver);
     let server_config = Arc::new(server_config);
 
-    for version in rustls::ALL_VERSIONS {
+    for version in watfaq_rustls::ALL_VERSIONS {
         let client_config = make_client_config_with_versions(kt, &[version]);
         let mut server = ServerConnection::new(Arc::clone(&server_config)).unwrap();
         let mut client =
@@ -3303,7 +3303,7 @@ fn server_exposes_offered_sni_even_if_resolver_fails() {
 #[test]
 fn sni_resolver_works() {
     let kt = KeyType::Rsa2048;
-    let mut resolver = rustls::server::ResolvesServerCertUsingSni::new();
+    let mut resolver = watfaq_rustls::server::ResolvesServerCertUsingSni::new();
     let signing_key = RsaSigningKey::new(&kt.get_key()).unwrap();
     let signing_key: Arc<dyn sign::SigningKey> = Arc::new(signing_key);
     resolver
@@ -3341,7 +3341,7 @@ fn sni_resolver_works() {
 #[test]
 fn sni_resolver_rejects_wrong_names() {
     let kt = KeyType::Rsa2048;
-    let mut resolver = rustls::server::ResolvesServerCertUsingSni::new();
+    let mut resolver = watfaq_rustls::server::ResolvesServerCertUsingSni::new();
     let signing_key = RsaSigningKey::new(&kt.get_key()).unwrap();
     let signing_key: Arc<dyn sign::SigningKey> = Arc::new(signing_key);
 
@@ -3371,7 +3371,7 @@ fn sni_resolver_rejects_wrong_names() {
 #[test]
 fn sni_resolver_lower_cases_configured_names() {
     let kt = KeyType::Rsa2048;
-    let mut resolver = rustls::server::ResolvesServerCertUsingSni::new();
+    let mut resolver = watfaq_rustls::server::ResolvesServerCertUsingSni::new();
     let signing_key = RsaSigningKey::new(&kt.get_key()).unwrap();
     let signing_key: Arc<dyn sign::SigningKey> = Arc::new(signing_key);
 
@@ -3398,7 +3398,7 @@ fn sni_resolver_lower_cases_configured_names() {
 fn sni_resolver_lower_cases_queried_names() {
     // actually, the handshake parser does this, but the effect is the same.
     let kt = KeyType::Rsa2048;
-    let mut resolver = rustls::server::ResolvesServerCertUsingSni::new();
+    let mut resolver = watfaq_rustls::server::ResolvesServerCertUsingSni::new();
     let signing_key = RsaSigningKey::new(&kt.get_key()).unwrap();
     let signing_key: Arc<dyn sign::SigningKey> = Arc::new(signing_key);
 
@@ -3424,7 +3424,7 @@ fn sni_resolver_lower_cases_queried_names() {
 #[test]
 fn sni_resolver_rejects_bad_certs() {
     let kt = KeyType::Rsa2048;
-    let mut resolver = rustls::server::ResolvesServerCertUsingSni::new();
+    let mut resolver = watfaq_rustls::server::ResolvesServerCertUsingSni::new();
     let signing_key = RsaSigningKey::new(&kt.get_key()).unwrap();
     let signing_key: Arc<dyn sign::SigningKey> = Arc::new(signing_key);
 
@@ -3479,7 +3479,7 @@ impl sign::SigningKey for SigningKeyNoneSpki {
         unimplemented!("Not meant to be called during tests")
     }
 
-    fn algorithm(&self) -> rustls::SignatureAlgorithm {
+    fn algorithm(&self) -> watfaq_rustls::SignatureAlgorithm {
         unimplemented!("Not meant to be called during tests")
     }
 }
@@ -3502,7 +3502,7 @@ impl sign::SigningKey for SigningKeySomeSpki {
         unimplemented!("Not meant to be called during tests")
     }
 
-    fn algorithm(&self) -> rustls::SignatureAlgorithm {
+    fn algorithm(&self) -> watfaq_rustls::SignatureAlgorithm {
         unimplemented!("Not meant to be called during tests")
     }
 }
@@ -3563,7 +3563,7 @@ fn do_exporter_test(client_config: ClientConfig, server_config: ServerConfig) {
 #[test]
 fn test_tls12_exporter() {
     for kt in ALL_KEY_TYPES {
-        let client_config = make_client_config_with_versions(*kt, &[&rustls::version::TLS12]);
+        let client_config = make_client_config_with_versions(*kt, &[&watfaq_rustls::version::TLS12]);
         let server_config = make_server_config(*kt);
 
         do_exporter_test(client_config, server_config);
@@ -3573,7 +3573,7 @@ fn test_tls12_exporter() {
 #[test]
 fn test_tls13_exporter() {
     for kt in ALL_KEY_TYPES {
-        let client_config = make_client_config_with_versions(*kt, &[&rustls::version::TLS13]);
+        let client_config = make_client_config_with_versions(*kt, &[&watfaq_rustls::version::TLS13]);
         let server_config = make_server_config(*kt);
 
         do_exporter_test(client_config, server_config);
@@ -3583,7 +3583,7 @@ fn test_tls13_exporter() {
 #[test]
 fn test_tls13_exporter_maximum_output_length() {
     let client_config =
-        make_client_config_with_versions(KeyType::EcdsaP256, &[&rustls::version::TLS13]);
+        make_client_config_with_versions(KeyType::EcdsaP256, &[&watfaq_rustls::version::TLS13]);
     let server_config = make_server_config(KeyType::EcdsaP256);
 
     let (mut client, mut server) = make_pair_for_configs(client_config, server_config);
@@ -3642,42 +3642,42 @@ fn find_suite(suite: CipherSuite) -> SupportedCipherSuite {
 }
 
 fn test_ciphersuites() -> Vec<(
-    &'static rustls::SupportedProtocolVersion,
+    &'static watfaq_rustls::SupportedProtocolVersion,
     KeyType,
     CipherSuite,
 )> {
     let mut v = vec![
         (
-            &rustls::version::TLS13,
+            &watfaq_rustls::version::TLS13,
             KeyType::Rsa2048,
             CipherSuite::TLS13_AES_256_GCM_SHA384,
         ),
         (
-            &rustls::version::TLS13,
+            &watfaq_rustls::version::TLS13,
             KeyType::Rsa2048,
             CipherSuite::TLS13_AES_128_GCM_SHA256,
         ),
         #[cfg(feature = "tls12")]
         (
-            &rustls::version::TLS12,
+            &watfaq_rustls::version::TLS12,
             KeyType::EcdsaP384,
             CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
         ),
         #[cfg(feature = "tls12")]
         (
-            &rustls::version::TLS12,
+            &watfaq_rustls::version::TLS12,
             KeyType::EcdsaP384,
             CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
         ),
         #[cfg(feature = "tls12")]
         (
-            &rustls::version::TLS12,
+            &watfaq_rustls::version::TLS12,
             KeyType::Rsa2048,
             CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
         ),
         #[cfg(feature = "tls12")]
         (
-            &rustls::version::TLS12,
+            &watfaq_rustls::version::TLS12,
             KeyType::Rsa2048,
             CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
         ),
@@ -3686,19 +3686,19 @@ fn test_ciphersuites() -> Vec<(
     if !provider_is_fips() {
         v.extend_from_slice(&[
             (
-                &rustls::version::TLS13,
+                &watfaq_rustls::version::TLS13,
                 KeyType::Rsa2048,
                 CipherSuite::TLS13_CHACHA20_POLY1305_SHA256,
             ),
             #[cfg(feature = "tls12")]
             (
-                &rustls::version::TLS12,
+                &watfaq_rustls::version::TLS12,
                 KeyType::EcdsaP256,
                 CipherSuite::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
             ),
             #[cfg(feature = "tls12")]
             (
-                &rustls::version::TLS12,
+                &watfaq_rustls::version::TLS12,
                 KeyType::Rsa2048,
                 CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
             ),
@@ -3892,7 +3892,7 @@ fn key_log_for_tls12() {
     let server_key_log = Arc::new(KeyLogToVec::new("server"));
 
     let kt = KeyType::Rsa2048;
-    let mut client_config = make_client_config_with_versions(kt, &[&rustls::version::TLS12]);
+    let mut client_config = make_client_config_with_versions(kt, &[&watfaq_rustls::version::TLS12]);
     client_config.key_log = client_key_log.clone();
     let client_config = Arc::new(client_config);
 
@@ -3928,7 +3928,7 @@ fn key_log_for_tls13() {
     let server_key_log = Arc::new(KeyLogToVec::new("server"));
 
     let kt = KeyType::Rsa2048;
-    let mut client_config = make_client_config_with_versions(kt, &[&rustls::version::TLS13]);
+    let mut client_config = make_client_config_with_versions(kt, &[&watfaq_rustls::version::TLS13]);
     client_config.key_log = client_key_log.clone();
     let client_config = Arc::new(client_config);
 
@@ -4220,7 +4220,7 @@ fn vectored_write_with_slow_client() {
 }
 
 struct ServerStorage {
-    storage: Arc<dyn rustls::server::StoresServerSessions>,
+    storage: Arc<dyn watfaq_rustls::server::StoresServerSessions>,
     put_count: AtomicUsize,
     get_count: AtomicUsize,
     take_count: AtomicUsize,
@@ -4229,7 +4229,7 @@ struct ServerStorage {
 impl ServerStorage {
     fn new() -> Self {
         Self {
-            storage: rustls::server::ServerSessionMemoryCache::new(1024),
+            storage: watfaq_rustls::server::ServerSessionMemoryCache::new(1024),
             put_count: AtomicUsize::new(0),
             get_count: AtomicUsize::new(0),
             take_count: AtomicUsize::new(0),
@@ -4257,7 +4257,7 @@ impl fmt::Debug for ServerStorage {
     }
 }
 
-impl rustls::server::StoresServerSessions for ServerStorage {
+impl watfaq_rustls::server::StoresServerSessions for ServerStorage {
     fn put(&self, key: Vec<u8>, value: Vec<u8>) -> bool {
         self.put_count
             .fetch_add(1, Ordering::SeqCst);
@@ -4284,8 +4284,8 @@ impl rustls::server::StoresServerSessions for ServerStorage {
 #[derive(Debug, Clone)]
 #[allow(dead_code)] // complete mock, but not 100% used in tests
 enum ClientStorageOp {
-    SetKxHint(ServerName<'static>, rustls::NamedGroup),
-    GetKxHint(ServerName<'static>, Option<rustls::NamedGroup>),
+    SetKxHint(ServerName<'static>, watfaq_rustls::NamedGroup),
+    GetKxHint(ServerName<'static>, Option<watfaq_rustls::NamedGroup>),
     SetTls12Session(ServerName<'static>),
     GetTls12Session(ServerName<'static>, bool),
     RemoveTls12Session(ServerName<'static>),
@@ -4294,7 +4294,7 @@ enum ClientStorageOp {
 }
 
 struct ClientStorage {
-    storage: Arc<dyn rustls::client::ClientSessionStore>,
+    storage: Arc<dyn watfaq_rustls::client::ClientSessionStore>,
     ops: Mutex<Vec<ClientStorageOp>>,
     alter_max_early_data_size: Option<(u32, u32)>,
 }
@@ -4302,7 +4302,7 @@ struct ClientStorage {
 impl ClientStorage {
     fn new() -> Self {
         Self {
-            storage: Arc::new(rustls::client::ClientSessionMemoryCache::new(1024)),
+            storage: Arc::new(watfaq_rustls::client::ClientSessionMemoryCache::new(1024)),
             ops: Mutex::new(Vec::new()),
             alter_max_early_data_size: None,
         }
@@ -4329,8 +4329,8 @@ impl fmt::Debug for ClientStorage {
     }
 }
 
-impl rustls::client::ClientSessionStore for ClientStorage {
-    fn set_kx_hint(&self, server_name: ServerName<'static>, group: rustls::NamedGroup) {
+impl watfaq_rustls::client::ClientSessionStore for ClientStorage {
+    fn set_kx_hint(&self, server_name: ServerName<'static>, group: watfaq_rustls::NamedGroup) {
         self.ops
             .lock()
             .unwrap()
@@ -4339,7 +4339,7 @@ impl rustls::client::ClientSessionStore for ClientStorage {
             .set_kx_hint(server_name, group)
     }
 
-    fn kx_hint(&self, server_name: &ServerName<'_>) -> Option<rustls::NamedGroup> {
+    fn kx_hint(&self, server_name: &ServerName<'_>) -> Option<watfaq_rustls::NamedGroup> {
         let rc = self.storage.kx_hint(server_name);
         self.ops
             .lock()
@@ -4351,7 +4351,7 @@ impl rustls::client::ClientSessionStore for ClientStorage {
     fn set_tls12_session(
         &self,
         server_name: ServerName<'static>,
-        value: rustls::client::Tls12ClientSessionValue,
+        value: watfaq_rustls::client::Tls12ClientSessionValue,
     ) {
         self.ops
             .lock()
@@ -4364,7 +4364,7 @@ impl rustls::client::ClientSessionStore for ClientStorage {
     fn tls12_session(
         &self,
         server_name: &ServerName<'_>,
-    ) -> Option<rustls::client::Tls12ClientSessionValue> {
+    ) -> Option<watfaq_rustls::client::Tls12ClientSessionValue> {
         let rc = self.storage.tls12_session(server_name);
         self.ops
             .lock()
@@ -4388,7 +4388,7 @@ impl rustls::client::ClientSessionStore for ClientStorage {
     fn insert_tls13_ticket(
         &self,
         server_name: ServerName<'static>,
-        mut value: rustls::client::Tls13ClientSessionValue,
+        mut value: watfaq_rustls::client::Tls13ClientSessionValue,
     ) {
         if let Some((expected, desired)) = self.alter_max_early_data_size {
             assert_eq!(value.max_early_data_size(), expected);
@@ -4406,7 +4406,7 @@ impl rustls::client::ClientSessionStore for ClientStorage {
     fn take_tls13_ticket(
         &self,
         server_name: &ServerName<'static>,
-    ) -> Option<rustls::client::Tls13ClientSessionValue> {
+    ) -> Option<watfaq_rustls::client::Tls13ClientSessionValue> {
         let rc = self
             .storage
             .take_tls13_ticket(server_name);
@@ -4424,7 +4424,7 @@ impl rustls::client::ClientSessionStore for ClientStorage {
 #[test]
 fn tls13_stateful_resumption() {
     let kt = KeyType::Rsa2048;
-    let client_config = make_client_config_with_versions(kt, &[&rustls::version::TLS13]);
+    let client_config = make_client_config_with_versions(kt, &[&watfaq_rustls::version::TLS13]);
     let client_config = Arc::new(client_config);
 
     let mut server_config = make_server_config(kt);
@@ -4485,7 +4485,7 @@ fn tls13_stateful_resumption() {
 #[test]
 fn tls13_stateless_resumption() {
     let kt = KeyType::Rsa2048;
-    let client_config = make_client_config_with_versions(kt, &[&rustls::version::TLS13]);
+    let client_config = make_client_config_with_versions(kt, &[&watfaq_rustls::version::TLS13]);
     let client_config = Arc::new(client_config);
 
     let mut server_config = make_server_config(kt);
@@ -4799,7 +4799,7 @@ fn server_detects_excess_streamed_early_data() {
 }
 
 mod test_quic {
-    use rustls::quic::{self, ConnectionCommon};
+    use watfaq_rustls::quic::{self, ConnectionCommon};
 
     use super::*;
 
@@ -4860,10 +4860,10 @@ mod test_quic {
         }
 
         let kt = KeyType::Rsa2048;
-        let mut client_config = make_client_config_with_versions(kt, &[&rustls::version::TLS13]);
+        let mut client_config = make_client_config_with_versions(kt, &[&watfaq_rustls::version::TLS13]);
         client_config.enable_early_data = true;
         let client_config = Arc::new(client_config);
-        let mut server_config = make_server_config_with_versions(kt, &[&rustls::version::TLS13]);
+        let mut server_config = make_server_config_with_versions(kt, &[&watfaq_rustls::version::TLS13]);
         server_config.max_early_data_size = 0xffffffff;
         let server_config = Arc::new(server_config);
         let client_params = &b"client params"[..];
@@ -5012,7 +5012,7 @@ mod test_quic {
         assert!(step(&mut server, &mut client).is_err());
         assert_eq!(
             client.alert(),
-            Some(rustls::AlertDescription::BadCertificate)
+            Some(watfaq_rustls::AlertDescription::BadCertificate)
         );
 
         // Key updates
@@ -5060,11 +5060,11 @@ mod test_quic {
         let server_params = &b"server params"[..];
 
         for &kt in ALL_KEY_TYPES {
-            let client_config = make_client_config_with_versions(kt, &[&rustls::version::TLS13]);
+            let client_config = make_client_config_with_versions(kt, &[&watfaq_rustls::version::TLS13]);
             let client_config = Arc::new(client_config);
 
             let mut server_config =
-                make_server_config_with_versions(kt, &[&rustls::version::TLS13]);
+                make_server_config_with_versions(kt, &[&watfaq_rustls::version::TLS13]);
             server_config.alpn_protocols = vec!["foo".into()];
             let server_config = Arc::new(server_config);
 
@@ -5088,7 +5088,7 @@ mod test_quic {
 
             assert_eq!(
                 server.alert(),
-                Some(rustls::AlertDescription::NoApplicationProtocol)
+                Some(watfaq_rustls::AlertDescription::NoApplicationProtocol)
             );
         }
     }
@@ -5097,7 +5097,7 @@ mod test_quic {
     #[test]
     fn test_quic_no_tls13_error() {
         let mut client_config =
-            make_client_config_with_versions(KeyType::Ed25519, &[&rustls::version::TLS12]);
+            make_client_config_with_versions(KeyType::Ed25519, &[&watfaq_rustls::version::TLS12]);
         client_config.alpn_protocols = vec!["foo".into()];
         let client_config = Arc::new(client_config);
 
@@ -5110,7 +5110,7 @@ mod test_quic {
         .is_err());
 
         let mut server_config =
-            make_server_config_with_versions(KeyType::Ed25519, &[&rustls::version::TLS12]);
+            make_server_config_with_versions(KeyType::Ed25519, &[&watfaq_rustls::version::TLS12]);
         server_config.alpn_protocols = vec!["foo".into()];
         let server_config = Arc::new(server_config);
 
@@ -5125,7 +5125,7 @@ mod test_quic {
     #[test]
     fn test_quic_invalid_early_data_size() {
         let mut server_config =
-            make_server_config_with_versions(KeyType::Ed25519, &[&rustls::version::TLS13]);
+            make_server_config_with_versions(KeyType::Ed25519, &[&watfaq_rustls::version::TLS13]);
         server_config.alpn_protocols = vec!["foo".into()];
 
         let cases = [
@@ -5154,7 +5154,7 @@ mod test_quic {
     #[cfg(feature = "ring")] // uses ring APIs directly
     fn test_quic_server_no_params_received() {
         let server_config =
-            make_server_config_with_versions(KeyType::Ed25519, &[&rustls::version::TLS13]);
+            make_server_config_with_versions(KeyType::Ed25519, &[&watfaq_rustls::version::TLS13]);
         let server_config = Arc::new(server_config);
 
         let mut server = quic::ServerConnection::new(
@@ -5164,11 +5164,11 @@ mod test_quic {
         )
         .unwrap();
 
-        use rustls::internal::msgs::enums::{Compression, NamedGroup};
-        use rustls::internal::msgs::handshake::{
+        use watfaq_rustls::internal::msgs::enums::{Compression, NamedGroup};
+        use watfaq_rustls::internal::msgs::handshake::{
             ClientHelloPayload, HandshakeMessagePayload, KeyShareEntry, Random, SessionId,
         };
-        use rustls::{CipherSuite, HandshakeType, SignatureScheme};
+        use watfaq_rustls::{CipherSuite, HandshakeType, SignatureScheme};
 
         let provider = provider::default_provider();
         let mut random = [0; 32];
@@ -5218,15 +5218,15 @@ mod test_quic {
     #[cfg(feature = "ring")] // uses ring APIs directly
     fn test_quic_server_no_tls12() {
         let mut server_config =
-            make_server_config_with_versions(KeyType::Ed25519, &[&rustls::version::TLS13]);
+            make_server_config_with_versions(KeyType::Ed25519, &[&watfaq_rustls::version::TLS13]);
         server_config.alpn_protocols = vec!["foo".into()];
         let server_config = Arc::new(server_config);
 
-        use rustls::internal::msgs::enums::{Compression, NamedGroup};
-        use rustls::internal::msgs::handshake::{
+        use watfaq_rustls::internal::msgs::enums::{Compression, NamedGroup};
+        use watfaq_rustls::internal::msgs::handshake::{
             ClientHelloPayload, HandshakeMessagePayload, KeyShareEntry, Random, SessionId,
         };
-        use rustls::{CipherSuite, HandshakeType, SignatureScheme};
+        use watfaq_rustls::{CipherSuite, HandshakeType, SignatureScheme};
 
         let provider = provider::default_provider();
         let mut random = [0; 32];
@@ -5281,8 +5281,8 @@ mod test_quic {
     #[test]
     fn packet_key_api() {
         use cipher_suite::TLS13_AES_128_GCM_SHA256;
-        use rustls::quic::{Keys, Version};
-        use rustls::Side;
+        use watfaq_rustls::quic::{Keys, Version};
+        use watfaq_rustls::Side;
 
         // Test vectors: https://www.rfc-editor.org/rfc/rfc9001.html#name-client-initial
         const CONNECTION_ID: &[u8] = &[0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08];
@@ -5478,8 +5478,8 @@ mod test_quic {
     #[test]
     fn test_quic_exporter() {
         for &kt in ALL_KEY_TYPES {
-            let client_config = make_client_config_with_versions(kt, &[&rustls::version::TLS13]);
-            let server_config = make_server_config_with_versions(kt, &[&rustls::version::TLS13]);
+            let client_config = make_client_config_with_versions(kt, &[&watfaq_rustls::version::TLS13]);
+            let server_config = make_server_config_with_versions(kt, &[&watfaq_rustls::version::TLS13]);
 
             do_exporter_test(client_config, server_config);
         }
@@ -5489,7 +5489,7 @@ mod test_quic {
     fn test_fragmented_append() {
         // Create a QUIC client connection.
         let client_config =
-            make_client_config_with_versions(KeyType::Rsa2048, &[&rustls::version::TLS13]);
+            make_client_config_with_versions(KeyType::Rsa2048, &[&watfaq_rustls::version::TLS13]);
         let client_config = Arc::new(client_config);
         let mut client = quic::ClientConnection::new(
             Arc::clone(&client_config),
@@ -5522,13 +5522,13 @@ mod test_quic {
 
 #[test]
 fn test_client_does_not_offer_sha1() {
-    use rustls::internal::msgs::codec::Reader;
-    use rustls::internal::msgs::handshake::HandshakePayload;
-    use rustls::internal::msgs::message::{MessagePayload, OutboundOpaqueMessage};
-    use rustls::HandshakeType;
+    use watfaq_rustls::internal::msgs::codec::Reader;
+    use watfaq_rustls::internal::msgs::handshake::HandshakePayload;
+    use watfaq_rustls::internal::msgs::message::{MessagePayload, OutboundOpaqueMessage};
+    use watfaq_rustls::HandshakeType;
 
     for kt in ALL_KEY_TYPES {
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             let client_config = make_client_config_with_versions(*kt, &[version]);
             let (mut client, _) = make_pair_for_configs(client_config, make_server_config(*kt));
 
@@ -5679,7 +5679,7 @@ fn test_client_sends_helloretryrequest() {
     ));
     assert!(matches!(
         storage.ops()[3],
-        ClientStorageOp::SetKxHint(_, rustls::NamedGroup::X25519)
+        ClientStorageOp::SetKxHint(_, watfaq_rustls::NamedGroup::X25519)
     ));
     assert!(matches!(
         storage.ops()[4],
@@ -5698,7 +5698,7 @@ fn test_client_sends_helloretryrequest() {
 
 #[test]
 fn test_client_rejects_hrr_with_varied_session_id() {
-    use rustls::internal::msgs::handshake::SessionId;
+    use watfaq_rustls::internal::msgs::handshake::SessionId;
     let different_session_id =
         SessionId::random(provider::default_provider().secure_random).unwrap();
 
@@ -5710,7 +5710,7 @@ fn test_client_rejects_hrr_with_varied_session_id() {
                         .keyshare_extension()
                         .expect("missing key share extension");
                     assert_eq!(keyshares.len(), 1);
-                    assert_eq!(keyshares[0].group(), rustls::NamedGroup::secp384r1);
+                    assert_eq!(keyshares[0].group(), watfaq_rustls::NamedGroup::secp384r1);
 
                     ch.session_id = different_session_id;
                     *encoded = Payload::new(parsed.get_encoding());
@@ -5727,7 +5727,7 @@ fn test_client_rejects_hrr_with_varied_session_id() {
             MessagePayload::Handshake { parsed, .. } => match &parsed.payload {
                 HandshakePayload::HelloRetryRequest(hrr) => {
                     let group = hrr.requested_key_share_group();
-                    assert_eq!(group, Some(rustls::NamedGroup::X25519));
+                    assert_eq!(group, Some(watfaq_rustls::NamedGroup::X25519));
 
                     assert_eq!(hrr.session_id, different_session_id);
                 }
@@ -5798,7 +5798,7 @@ fn test_client_attempts_to_use_unsupported_kx_group() {
     assert_eq!(ops.len(), 7);
     assert!(matches!(
         ops[3],
-        ClientStorageOp::SetKxHint(_, rustls::NamedGroup::secp256r1)
+        ClientStorageOp::SetKxHint(_, watfaq_rustls::NamedGroup::secp256r1)
     ));
 
     // second handshake
@@ -5811,11 +5811,11 @@ fn test_client_attempts_to_use_unsupported_kx_group() {
     assert!(matches!(ops[7], ClientStorageOp::TakeTls13Ticket(_, true)));
     assert!(matches!(
         ops[8],
-        ClientStorageOp::GetKxHint(_, Some(rustls::NamedGroup::secp256r1))
+        ClientStorageOp::GetKxHint(_, Some(watfaq_rustls::NamedGroup::secp256r1))
     ));
     assert!(matches!(
         ops[9],
-        ClientStorageOp::SetKxHint(_, rustls::NamedGroup::secp384r1)
+        ClientStorageOp::SetKxHint(_, watfaq_rustls::NamedGroup::secp384r1)
     ));
 }
 
@@ -5854,7 +5854,7 @@ fn test_client_sends_share_for_less_preferred_group() {
     assert_eq!(ops.len(), 7);
     assert!(matches!(
         ops[3],
-        ClientStorageOp::SetKxHint(_, rustls::NamedGroup::secp384r1)
+        ClientStorageOp::SetKxHint(_, watfaq_rustls::NamedGroup::secp384r1)
     ));
 
     // second handshake (this must HRR to the most-preferred group)
@@ -5866,7 +5866,7 @@ fn test_client_sends_share_for_less_preferred_group() {
                         .keyshare_extension()
                         .expect("missing key share extension");
                     assert_eq!(keyshares.len(), 1);
-                    assert_eq!(keyshares[0].group(), rustls::NamedGroup::secp384r1);
+                    assert_eq!(keyshares[0].group(), watfaq_rustls::NamedGroup::secp384r1);
                 }
                 _ => panic!("unexpected handshake message {:?}", parsed),
             },
@@ -5880,7 +5880,7 @@ fn test_client_sends_share_for_less_preferred_group() {
             MessagePayload::Handshake { parsed, .. } => match &parsed.payload {
                 HandshakePayload::HelloRetryRequest(hrr) => {
                     let group = hrr.requested_key_share_group();
-                    assert_eq!(group, Some(rustls::NamedGroup::X25519));
+                    assert_eq!(group, Some(watfaq_rustls::NamedGroup::X25519));
                 }
                 _ => panic!("unexpected handshake message {:?}", parsed),
             },
@@ -6080,7 +6080,7 @@ fn bad_client_max_fragment_sizes() {
 fn handshakes_complete_and_data_flows_with_gratuitious_max_fragment_sizes() {
     // general exercising of msgs::fragmenter and msgs::deframer
     for kt in ALL_KEY_TYPES {
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             // no hidden significance to these numbers
             for frag_size in [37, 61, 101, 257] {
                 println!("test kt={kt:?} version={version:?} frag={frag_size:?}");
@@ -6121,11 +6121,11 @@ fn connection_types_are_not_huge() {
     assert_lt(mem::size_of::<ServerConnection>(), 1600);
     assert_lt(mem::size_of::<ClientConnection>(), 1600);
     assert_lt(
-        mem::size_of::<rustls::server::UnbufferedServerConnection>(),
+        mem::size_of::<watfaq_rustls::server::UnbufferedServerConnection>(),
         1600,
     );
     assert_lt(
-        mem::size_of::<rustls::client::UnbufferedClientConnection>(),
+        mem::size_of::<watfaq_rustls::client::UnbufferedClientConnection>(),
         1600,
     );
 }
@@ -6231,7 +6231,7 @@ fn test_no_session_ticket_request_on_tls_1_3() {
     }
 
     let client_config =
-        make_client_config_with_versions(KeyType::Rsa2048, &[&rustls::version::TLS13]);
+        make_client_config_with_versions(KeyType::Rsa2048, &[&watfaq_rustls::version::TLS13]);
     let server_config = make_server_config(KeyType::Rsa2048);
 
     let (client, server) = make_pair_for_configs(client_config, server_config);
@@ -6241,7 +6241,7 @@ fn test_no_session_ticket_request_on_tls_1_3() {
 
 #[test]
 fn test_server_rejects_clients_without_any_kx_group_overlap() {
-    for version in rustls::ALL_VERSIONS {
+    for version in watfaq_rustls::ALL_VERSIONS {
         let (mut client, mut server) = make_pair_for_configs(
             make_client_config_with_kx_groups(KeyType::Rsa2048, vec![provider::kx_group::X25519]),
             finish_server_config(
@@ -6309,7 +6309,7 @@ fn test_client_rejects_no_extended_master_secret_extension_when_require_ems_or_f
     }
     let mut server_config = finish_server_config(
         key_type,
-        server_config_builder_with_versions(&[&rustls::version::TLS12]),
+        server_config_builder_with_versions(&[&watfaq_rustls::version::TLS12]),
     );
     server_config.require_ems = false;
     let (client, server) = make_pair_for_configs(client_config, server_config);
@@ -6332,7 +6332,7 @@ fn test_server_rejects_no_extended_master_secret_extension_when_require_ems_or_f
     let client_config = make_client_config(key_type);
     let mut server_config = finish_server_config(
         key_type,
-        server_config_builder_with_versions(&[&rustls::version::TLS12]),
+        server_config_builder_with_versions(&[&watfaq_rustls::version::TLS12]),
     );
     if provider_is_fips() {
         assert!(server_config.require_ems);
@@ -6375,14 +6375,14 @@ fn test_client_tls12_no_resume_after_server_downgrade() {
 
     let server_config_1 = Arc::new(common::finish_server_config(
         KeyType::Ed25519,
-        server_config_builder_with_versions(&[&rustls::version::TLS13]),
+        server_config_builder_with_versions(&[&watfaq_rustls::version::TLS13]),
     ));
 
     let mut server_config_2 = common::finish_server_config(
         KeyType::Ed25519,
-        server_config_builder_with_versions(&[&rustls::version::TLS12]),
+        server_config_builder_with_versions(&[&watfaq_rustls::version::TLS12]),
     );
-    server_config_2.session_storage = Arc::new(rustls::server::NoServerSessionStorage {});
+    server_config_2.session_storage = Arc::new(watfaq_rustls::server::NoServerSessionStorage {});
 
     dbg!("handshake 1");
     let mut client_1 =
@@ -6422,7 +6422,7 @@ fn test_client_tls12_no_resume_after_server_downgrade() {
     // but ends up with TLS1.2
     assert_eq!(
         client_2.protocol_version(),
-        Some(rustls::ProtocolVersion::TLSv1_2)
+        Some(watfaq_rustls::ProtocolVersion::TLSv1_2)
     );
 }
 
@@ -6462,7 +6462,7 @@ fn test_client_with_custom_verifier_can_accept_ecdsa_sha1_signatures() {
         }
         .into(),
     )
-    .with_protocol_versions(&[&rustls::version::TLS12])
+    .with_protocol_versions(&[&watfaq_rustls::version::TLS12])
     .unwrap()
     .dangerous()
     .with_custom_certificate_verifier(Arc::new(MockServerVerifier::accepts_anything()))
@@ -6482,7 +6482,7 @@ fn test_client_with_custom_verifier_can_accept_ecdsa_sha1_signatures() {
 
 #[test]
 fn test_acceptor() {
-    use rustls::server::Acceptor;
+    use watfaq_rustls::server::Acceptor;
 
     let client_config = Arc::new(make_client_config(KeyType::Ed25519));
     let mut client = ClientConnection::new(client_config, server_name("localhost")).unwrap();
@@ -6563,12 +6563,12 @@ fn test_acceptor() {
 
 #[test]
 fn test_acceptor_rejected_handshake() {
-    use rustls::server::Acceptor;
+    use watfaq_rustls::server::Acceptor;
 
     let client_config = finish_client_config(
         KeyType::Ed25519,
         ClientConfig::builder_with_provider(provider::default_provider().into())
-            .with_protocol_versions(&[&rustls::version::TLS13])
+            .with_protocol_versions(&[&watfaq_rustls::version::TLS13])
             .unwrap(),
     );
     let mut client = ClientConnection::new(client_config.into(), server_name("localhost")).unwrap();
@@ -6578,7 +6578,7 @@ fn test_acceptor_rejected_handshake() {
     let server_config = finish_server_config(
         KeyType::Ed25519,
         ServerConfig::builder_with_provider(provider::default_provider().into())
-            .with_protocol_versions(&[&rustls::version::TLS12])
+            .with_protocol_versions(&[&watfaq_rustls::version::TLS12])
             .unwrap(),
     );
     let mut acceptor = Acceptor::default();
@@ -6609,7 +6609,7 @@ fn test_no_warning_logging_during_successful_sessions() {
     CountingLogger::reset();
 
     for kt in ALL_KEY_TYPES {
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             let client_config = make_client_config_with_versions(*kt, &[version]);
             let (mut client, mut server) =
                 make_pair_for_configs(client_config, make_server_config(*kt));
@@ -6952,16 +6952,16 @@ fn test_debug_server_name_from_string() {
 fn test_explicit_provider_selection() {
     let client_config = finish_client_config(
         KeyType::Rsa2048,
-        rustls::ClientConfig::builder_with_provider(
-            rustls::crypto::ring::default_provider().into(),
+        watfaq_rustls::ClientConfig::builder_with_provider(
+            watfaq_rustls::crypto::ring::default_provider().into(),
         )
         .with_safe_default_protocol_versions()
         .unwrap(),
     );
     let server_config = finish_server_config(
         KeyType::Rsa2048,
-        rustls::ServerConfig::builder_with_provider(
-            rustls::crypto::aws_lc_rs::default_provider().into(),
+        watfaq_rustls::ServerConfig::builder_with_provider(
+            watfaq_rustls::crypto::aws_lc_rs::default_provider().into(),
         )
         .with_safe_default_protocol_versions()
         .unwrap(),
@@ -6977,8 +6977,8 @@ struct FaultyRandom {
     rand_queue: Mutex<&'static [u8]>,
 }
 
-impl rustls::crypto::SecureRandom for FaultyRandom {
-    fn fill(&self, output: &mut [u8]) -> Result<(), rustls::crypto::GetRandomFailed> {
+impl watfaq_rustls::crypto::SecureRandom for FaultyRandom {
+    fn fill(&self, output: &mut [u8]) -> Result<(), watfaq_rustls::crypto::GetRandomFailed> {
         let mut queue = self.rand_queue.lock().unwrap();
 
         println!(
@@ -6988,7 +6988,7 @@ impl rustls::crypto::SecureRandom for FaultyRandom {
         );
 
         if queue.len() < output.len() {
-            return Err(rustls::crypto::GetRandomFailed);
+            return Err(watfaq_rustls::crypto::GetRandomFailed);
         }
 
         let fixed_output = &queue[..output.len()];
@@ -7006,7 +7006,7 @@ fn test_client_construction_fails_if_random_source_fails_in_first_request() {
 
     let client_config = finish_client_config(
         KeyType::Rsa2048,
-        rustls::ClientConfig::builder_with_provider(
+        watfaq_rustls::ClientConfig::builder_with_provider(
             CryptoProvider {
                 secure_random: &FAULTY_RANDOM,
                 ..provider::default_provider()
@@ -7031,7 +7031,7 @@ fn test_client_construction_fails_if_random_source_fails_in_second_request() {
 
     let client_config = finish_client_config(
         KeyType::Rsa2048,
-        rustls::ClientConfig::builder_with_provider(
+        watfaq_rustls::ClientConfig::builder_with_provider(
             CryptoProvider {
                 secure_random: &FAULTY_RANDOM,
                 ..provider::default_provider()
@@ -7059,7 +7059,7 @@ fn test_client_construction_requires_66_bytes_of_random_material() {
 
     let client_config = finish_client_config(
         KeyType::Rsa2048,
-        rustls::ClientConfig::builder_with_provider(
+        watfaq_rustls::ClientConfig::builder_with_provider(
             CryptoProvider {
                 secure_random: &FAULTY_RANDOM,
                 ..provider::default_provider()
@@ -7095,7 +7095,7 @@ fn test_client_removes_tls12_session_if_server_sends_undecryptable_first_message
     }
 
     let mut client_config =
-        make_client_config_with_versions(KeyType::Rsa2048, &[&rustls::version::TLS12]);
+        make_client_config_with_versions(KeyType::Rsa2048, &[&watfaq_rustls::version::TLS12]);
     let storage = Arc::new(ClientStorage::new());
     client_config.resumption = Resumption::store(storage.clone());
     let client_config = Arc::new(client_config);
@@ -7439,7 +7439,7 @@ fn test_pinned_ocsp_response_given_to_custom_server_cert_verifier() {
     let ocsp_response = b"hello-ocsp-world!";
     let kt = KeyType::EcdsaP256;
 
-    for version in rustls::ALL_VERSIONS {
+    for version in watfaq_rustls::ALL_VERSIONS {
         let server_config = server_config_builder()
             .with_no_client_auth()
             .with_single_cert_with_ocsp(kt.get_chain(), kt.get_key(), ocsp_response.to_vec())
@@ -7482,18 +7482,18 @@ fn test_server_uses_cached_compressed_certificates() {
     #[derive(Debug)]
     struct CountingCompressor;
 
-    impl rustls::compress::CertCompressor for CountingCompressor {
+    impl watfaq_rustls::compress::CertCompressor for CountingCompressor {
         fn compress(
             &self,
             input: Vec<u8>,
-            level: rustls::compress::CompressionLevel,
-        ) -> Result<Vec<u8>, rustls::compress::CompressionFailed> {
+            level: watfaq_rustls::compress::CompressionLevel,
+        ) -> Result<Vec<u8>, watfaq_rustls::compress::CompressionFailed> {
             dbg!(COMPRESS_COUNT.fetch_add(1, Ordering::SeqCst));
-            rustls::compress::ZLIB_COMPRESSOR.compress(input, level)
+            watfaq_rustls::compress::ZLIB_COMPRESSOR.compress(input, level)
         }
 
-        fn algorithm(&self) -> rustls::CertificateCompressionAlgorithm {
-            rustls::CertificateCompressionAlgorithm::Zlib
+        fn algorithm(&self) -> watfaq_rustls::CertificateCompressionAlgorithm {
+            watfaq_rustls::CertificateCompressionAlgorithm::Zlib
         }
     }
 }
@@ -7523,35 +7523,35 @@ fn test_client_uses_uncompressed_certificate_if_compression_fails() {
 #[derive(Debug)]
 struct FailingCompressor;
 
-impl rustls::compress::CertCompressor for FailingCompressor {
+impl watfaq_rustls::compress::CertCompressor for FailingCompressor {
     fn compress(
         &self,
         _input: Vec<u8>,
-        _level: rustls::compress::CompressionLevel,
-    ) -> Result<Vec<u8>, rustls::compress::CompressionFailed> {
+        _level: watfaq_rustls::compress::CompressionLevel,
+    ) -> Result<Vec<u8>, watfaq_rustls::compress::CompressionFailed> {
         println!("compress called but doesn't work");
-        Err(rustls::compress::CompressionFailed)
+        Err(watfaq_rustls::compress::CompressionFailed)
     }
 
-    fn algorithm(&self) -> rustls::CertificateCompressionAlgorithm {
-        rustls::CertificateCompressionAlgorithm::Zlib
+    fn algorithm(&self) -> watfaq_rustls::CertificateCompressionAlgorithm {
+        watfaq_rustls::CertificateCompressionAlgorithm::Zlib
     }
 }
 
 #[derive(Debug)]
 struct NeverDecompressor;
 
-impl rustls::compress::CertDecompressor for NeverDecompressor {
+impl watfaq_rustls::compress::CertDecompressor for NeverDecompressor {
     fn decompress(
         &self,
         _input: &[u8],
         _output: &mut [u8],
-    ) -> Result<(), rustls::compress::DecompressionFailed> {
+    ) -> Result<(), watfaq_rustls::compress::DecompressionFailed> {
         panic!("NeverDecompressor::decompress should not be called");
     }
 
-    fn algorithm(&self) -> rustls::CertificateCompressionAlgorithm {
-        rustls::CertificateCompressionAlgorithm::Zlib
+    fn algorithm(&self) -> watfaq_rustls::CertificateCompressionAlgorithm {
+        watfaq_rustls::CertificateCompressionAlgorithm::Zlib
     }
 }
 
@@ -7562,7 +7562,7 @@ fn test_server_can_opt_out_of_compression_cache() {
 
     let mut server_config = make_server_config(KeyType::Rsa2048);
     server_config.cert_compressors = vec![&AlwaysInteractiveCompressor];
-    server_config.cert_compression_cache = Arc::new(rustls::compress::CompressionCache::Disabled);
+    server_config.cert_compression_cache = Arc::new(watfaq_rustls::compress::CompressionCache::Disabled);
     let mut client_config = make_client_config(KeyType::Rsa2048);
     client_config.resumption = Resumption::disabled();
 
@@ -7581,19 +7581,19 @@ fn test_server_can_opt_out_of_compression_cache() {
     #[derive(Debug)]
     struct AlwaysInteractiveCompressor;
 
-    impl rustls::compress::CertCompressor for AlwaysInteractiveCompressor {
+    impl watfaq_rustls::compress::CertCompressor for AlwaysInteractiveCompressor {
         fn compress(
             &self,
             input: Vec<u8>,
-            level: rustls::compress::CompressionLevel,
-        ) -> Result<Vec<u8>, rustls::compress::CompressionFailed> {
+            level: watfaq_rustls::compress::CompressionLevel,
+        ) -> Result<Vec<u8>, watfaq_rustls::compress::CompressionFailed> {
             dbg!(COMPRESS_COUNT.fetch_add(1, Ordering::SeqCst));
-            assert_eq!(level, rustls::compress::CompressionLevel::Interactive);
-            rustls::compress::ZLIB_COMPRESSOR.compress(input, level)
+            assert_eq!(level, watfaq_rustls::compress::CompressionLevel::Interactive);
+            watfaq_rustls::compress::ZLIB_COMPRESSOR.compress(input, level)
         }
 
-        fn algorithm(&self) -> rustls::CertificateCompressionAlgorithm {
-            rustls::CertificateCompressionAlgorithm::Zlib
+        fn algorithm(&self) -> watfaq_rustls::CertificateCompressionAlgorithm {
+            watfaq_rustls::CertificateCompressionAlgorithm::Zlib
         }
     }
 }
@@ -7709,52 +7709,52 @@ fn test_cert_decompression_by_server_would_result_in_excessively_large_cert() {
 #[derive(Debug)]
 struct GarbageDecompressor;
 
-impl rustls::compress::CertDecompressor for GarbageDecompressor {
+impl watfaq_rustls::compress::CertDecompressor for GarbageDecompressor {
     fn decompress(
         &self,
         _input: &[u8],
         output: &mut [u8],
-    ) -> Result<(), rustls::compress::DecompressionFailed> {
+    ) -> Result<(), watfaq_rustls::compress::DecompressionFailed> {
         output.fill(0xff);
         Ok(())
     }
 
-    fn algorithm(&self) -> rustls::CertificateCompressionAlgorithm {
-        rustls::CertificateCompressionAlgorithm::Zlib
+    fn algorithm(&self) -> watfaq_rustls::CertificateCompressionAlgorithm {
+        watfaq_rustls::CertificateCompressionAlgorithm::Zlib
     }
 }
 
 #[derive(Debug)]
 struct FailingDecompressor;
 
-impl rustls::compress::CertDecompressor for FailingDecompressor {
+impl watfaq_rustls::compress::CertDecompressor for FailingDecompressor {
     fn decompress(
         &self,
         _input: &[u8],
         _output: &mut [u8],
-    ) -> Result<(), rustls::compress::DecompressionFailed> {
-        Err(rustls::compress::DecompressionFailed)
+    ) -> Result<(), watfaq_rustls::compress::DecompressionFailed> {
+        Err(watfaq_rustls::compress::DecompressionFailed)
     }
 
-    fn algorithm(&self) -> rustls::CertificateCompressionAlgorithm {
-        rustls::CertificateCompressionAlgorithm::Zlib
+    fn algorithm(&self) -> watfaq_rustls::CertificateCompressionAlgorithm {
+        watfaq_rustls::CertificateCompressionAlgorithm::Zlib
     }
 }
 
 #[derive(Debug)]
 struct IdentityCompressor;
 
-impl rustls::compress::CertCompressor for IdentityCompressor {
+impl watfaq_rustls::compress::CertCompressor for IdentityCompressor {
     fn compress(
         &self,
         input: Vec<u8>,
-        _level: rustls::compress::CompressionLevel,
-    ) -> Result<Vec<u8>, rustls::compress::CompressionFailed> {
+        _level: watfaq_rustls::compress::CompressionLevel,
+    ) -> Result<Vec<u8>, watfaq_rustls::compress::CompressionFailed> {
         Ok(input.to_vec())
     }
 
-    fn algorithm(&self) -> rustls::CertificateCompressionAlgorithm {
-        rustls::CertificateCompressionAlgorithm::Zlib
+    fn algorithm(&self) -> watfaq_rustls::CertificateCompressionAlgorithm {
+        watfaq_rustls::CertificateCompressionAlgorithm::Zlib
     }
 }
 
@@ -7783,7 +7783,7 @@ impl io::Write for FakeStream<'_> {
 #[test]
 fn test_illegal_server_renegotiation_attempt_after_tls13_handshake() {
     let client_config =
-        make_client_config_with_versions(KeyType::Rsa2048, &[&rustls::version::TLS13]);
+        make_client_config_with_versions(KeyType::Rsa2048, &[&watfaq_rustls::version::TLS13]);
     let mut server_config = make_server_config(KeyType::Rsa2048);
     server_config.enable_secret_extraction = true;
 
@@ -7820,7 +7820,7 @@ fn test_illegal_server_renegotiation_attempt_after_tls13_handshake() {
 #[test]
 fn test_illegal_server_renegotiation_attempt_after_tls12_handshake() {
     let client_config =
-        make_client_config_with_versions(KeyType::Rsa2048, &[&rustls::version::TLS12]);
+        make_client_config_with_versions(KeyType::Rsa2048, &[&watfaq_rustls::version::TLS12]);
     let mut server_config = make_server_config(KeyType::Rsa2048);
     server_config.enable_secret_extraction = true;
 
@@ -7862,7 +7862,7 @@ fn test_illegal_server_renegotiation_attempt_after_tls12_handshake() {
 #[test]
 fn test_illegal_client_renegotiation_attempt_after_tls13_handshake() {
     let mut client_config =
-        make_client_config_with_versions(KeyType::Rsa2048, &[&rustls::version::TLS13]);
+        make_client_config_with_versions(KeyType::Rsa2048, &[&watfaq_rustls::version::TLS13]);
     client_config.enable_secret_extraction = true;
     let server_config = make_server_config(KeyType::Rsa2048);
 
@@ -7904,7 +7904,7 @@ fn test_illegal_client_renegotiation_attempt_after_tls13_handshake() {
 fn test_illegal_client_renegotiation_attempt_during_tls12_handshake() {
     let server_config = make_server_config(KeyType::Rsa2048);
     let client_config =
-        make_client_config_with_versions(KeyType::Rsa2048, &[&rustls::version::TLS12]);
+        make_client_config_with_versions(KeyType::Rsa2048, &[&watfaq_rustls::version::TLS12]);
     let (mut client, mut server) = make_pair_for_configs(client_config, server_config);
 
     let mut client_hello = vec![];
@@ -8061,7 +8061,7 @@ fn tls12_connection_fails_after_key_reaches_confidentiality_limit() {
     let client_config = finish_client_config(
         KeyType::Ed25519,
         ClientConfig::builder_with_provider(provider.clone())
-            .with_protocol_versions(&[&rustls::version::TLS12])
+            .with_protocol_versions(&[&watfaq_rustls::version::TLS12])
             .unwrap(),
     );
     let server_config = finish_server_config(
@@ -8170,7 +8170,7 @@ fn large_client_hello() {
 
 #[test]
 fn large_client_hello_acceptor() {
-    let mut acceptor = rustls::server::Acceptor::default();
+    let mut acceptor = watfaq_rustls::server::Acceptor::default();
     let hello = include_bytes!("data/bug2227-clienthello.bin");
     let mut cursor = io::Cursor::new(hello);
     loop {

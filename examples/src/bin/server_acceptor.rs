@@ -14,9 +14,9 @@ use std::{fs, thread};
 
 use clap::Parser;
 use rcgen::KeyPair;
-use rustls::pki_types::{CertificateRevocationListDer, PrivatePkcs8KeyDer};
-use rustls::server::{Acceptor, ClientHello, ServerConfig, WebPkiClientVerifier};
-use rustls::RootCertStore;
+use watfaq_rustls::pki_types::{CertificateRevocationListDer, PrivatePkcs8KeyDer};
+use watfaq_rustls::server::{Acceptor, ClientHello, ServerConfig, WebPkiClientVerifier};
+use watfaq_rustls::RootCertStore;
 
 fn main() {
     let args = Args::parse();
@@ -218,7 +218,7 @@ impl TestPki {
             .unwrap();
 
         // Allow using SSLKEYLOGFILE.
-        server_config.key_log = Arc::new(rustls::KeyLogFile::new());
+        server_config.key_log = Arc::new(watfaq_rustls::KeyLogFile::new());
 
         Arc::new(server_config)
     }

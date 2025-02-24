@@ -15,12 +15,12 @@ use fxhash::FxHashMap;
 use itertools::Itertools;
 use rayon::iter::Either;
 use rayon::prelude::*;
-use rustls::client::Resumption;
-use rustls::crypto::{aws_lc_rs, ring, CryptoProvider, GetRandomFailed, SecureRandom};
-use rustls::pki_types::pem::PemObject;
-use rustls::pki_types::CertificateDer;
-use rustls::server::{NoServerSessionStorage, ServerSessionMemoryCache, WebPkiClientVerifier};
-use rustls::{
+use watfaq_rustls::client::Resumption;
+use watfaq_rustls::crypto::{aws_lc_rs, ring, CryptoProvider, GetRandomFailed, SecureRandom};
+use watfaq_rustls::pki_types::pem::PemObject;
+use watfaq_rustls::pki_types::CertificateDer;
+use watfaq_rustls::server::{NoServerSessionStorage, ServerSessionMemoryCache, WebPkiClientVerifier};
+use watfaq_rustls::{
     CipherSuite, ClientConfig, ClientConnection, HandshakeKind, ProtocolVersion, RootCertStore,
     ServerConfig, ServerConnection,
 };
@@ -301,13 +301,13 @@ fn all_benchmarks_params() -> Vec<BenchmarkParams> {
         (
             derandomize(ring::default_provider()),
             ring::ALL_CIPHER_SUITES,
-            &(ring_ticketer as fn() -> Arc<dyn rustls::server::ProducesTickets>),
+            &(ring_ticketer as fn() -> Arc<dyn watfaq_rustls::server::ProducesTickets>),
             "ring",
         ),
         (
             derandomize(aws_lc_rs::default_provider()),
             aws_lc_rs::ALL_CIPHER_SUITES,
-            &(aws_lc_rs_ticketer as fn() -> Arc<dyn rustls::server::ProducesTickets>),
+            &(aws_lc_rs_ticketer as fn() -> Arc<dyn watfaq_rustls::server::ProducesTickets>),
             "aws_lc_rs",
         ),
     ] {
@@ -315,43 +315,43 @@ fn all_benchmarks_params() -> Vec<BenchmarkParams> {
             (
                 KeyType::Rsa2048,
                 CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-                &rustls::version::TLS12,
+                &watfaq_rustls::version::TLS12,
                 "1.2_rsa_aes",
             ),
             (
                 KeyType::Rsa2048,
                 CipherSuite::TLS13_AES_128_GCM_SHA256,
-                &rustls::version::TLS13,
+                &watfaq_rustls::version::TLS13,
                 "1.3_rsa_aes",
             ),
             (
                 KeyType::EcdsaP256,
                 CipherSuite::TLS13_AES_128_GCM_SHA256,
-                &rustls::version::TLS13,
+                &watfaq_rustls::version::TLS13,
                 "1.3_ecdsap256_aes",
             ),
             (
                 KeyType::EcdsaP384,
                 CipherSuite::TLS13_AES_128_GCM_SHA256,
-                &rustls::version::TLS13,
+                &watfaq_rustls::version::TLS13,
                 "1.3_ecdsap384_aes",
             ),
             (
                 KeyType::Rsa2048,
                 CipherSuite::TLS13_CHACHA20_POLY1305_SHA256,
-                &rustls::version::TLS13,
+                &watfaq_rustls::version::TLS13,
                 "1.3_rsa_chacha",
             ),
             (
                 KeyType::EcdsaP256,
                 CipherSuite::TLS13_CHACHA20_POLY1305_SHA256,
-                &rustls::version::TLS13,
+                &watfaq_rustls::version::TLS13,
                 "1.3_ecdsap256_chacha",
             ),
             (
                 KeyType::EcdsaP384,
                 CipherSuite::TLS13_CHACHA20_POLY1305_SHA256,
-                &rustls::version::TLS13,
+                &watfaq_rustls::version::TLS13,
                 "1.3_ecdsap384_chacha",
             ),
         ] {
@@ -370,19 +370,19 @@ fn all_benchmarks_params() -> Vec<BenchmarkParams> {
 }
 
 fn find_suite(
-    all: &[rustls::SupportedCipherSuite],
+    all: &[watfaq_rustls::SupportedCipherSuite],
     name: CipherSuite,
-) -> rustls::SupportedCipherSuite {
+) -> watfaq_rustls::SupportedCipherSuite {
     *all.iter()
         .find(|suite| suite.suite() == name)
         .unwrap_or_else(|| panic!("cannot find cipher suite {name:?}"))
 }
 
-fn ring_ticketer() -> Arc<dyn rustls::server::ProducesTickets> {
+fn ring_ticketer() -> Arc<dyn watfaq_rustls::server::ProducesTickets> {
     ring::Ticketer::new().unwrap()
 }
 
-fn aws_lc_rs_ticketer() -> Arc<dyn rustls::server::ProducesTickets> {
+fn aws_lc_rs_ticketer() -> Arc<dyn watfaq_rustls::server::ProducesTickets> {
     aws_lc_rs::Ticketer::new().unwrap()
 }
 

@@ -1,8 +1,8 @@
 use std::fs;
 use std::io::Write;
 
-use rustls::version::{TLS12, TLS13};
-use rustls::{
+use watfaq_rustls::version::{TLS12, TLS13};
+use watfaq_rustls::{
     ClientConfig, ClientConnection, ServerConfig, ServerConnection, SupportedProtocolVersion,
 };
 

@@ -6,8 +6,8 @@ extern crate rustls;
 use std::io;
 use std::sync::Arc;
 
-use rustls::server::{Accepted, Acceptor};
-use rustls::{ServerConfig, ServerConnection};
+use watfaq_rustls::server::{Accepted, Acceptor};
+use watfaq_rustls::{ServerConfig, ServerConnection};
 
 fuzz_target!(|data: &[u8]| {
     let _ = env_logger::try_init();

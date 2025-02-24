@@ -1,5 +1,5 @@
-use rustls::pki_types::pem::PemObject;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use watfaq_rustls::pki_types::pem::PemObject;
+use watfaq_rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum KeyType {
@@ -398,7 +398,7 @@ pub mod transport {
     use std::io::{Cursor, Read, Write};
 
     use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-    use rustls::{ClientConnection, ConnectionCommon, ServerConnection, SideData};
+    use watfaq_rustls::{ClientConnection, ConnectionCommon, ServerConnection, SideData};
 
     use super::async_io::{AsyncRead, AsyncWrite};
 

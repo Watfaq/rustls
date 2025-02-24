@@ -44,7 +44,7 @@
 //! **To incorporate just the key exchange algorithm(s) in a custom [`rustls::crypto::CryptoProvider`]**:
 //!
 //! ```rust
-//! use rustls::crypto::{aws_lc_rs, CryptoProvider};
+//! use watfaq_rustls::crypto::{aws_lc_rs, CryptoProvider};
 //! let parent = aws_lc_rs::default_provider();
 //! let my_provider = CryptoProvider {
 //!     kx_groups: vec![
@@ -57,9 +57,9 @@
 //! ```
 //!
 
-use rustls::crypto::aws_lc_rs::{default_provider, kx_group};
-use rustls::crypto::{CryptoProvider, SupportedKxGroup};
-use rustls::{Error, NamedGroup, PeerMisbehaved};
+use watfaq_rustls::crypto::aws_lc_rs::{default_provider, kx_group};
+use watfaq_rustls::crypto::{CryptoProvider, SupportedKxGroup};
+use watfaq_rustls::{Error, NamedGroup, PeerMisbehaved};
 
 mod hybrid;
 mod mlkem;

@@ -12,8 +12,8 @@ use common::{
     make_client_config_with_versions_with_auth, make_pair_for_arc_configs, server_config_builder,
     server_name, ErrorFromPeer, KeyType, MockClientVerifier, ALL_KEY_TYPES,
 };
-use rustls::server::danger::ClientCertVerified;
-use rustls::{
+use watfaq_rustls::server::danger::ClientCertVerified;
+use watfaq_rustls::{
     AlertDescription, ClientConnection, Error, InvalidMessage, ServerConfig, ServerConnection,
 };
 
@@ -50,7 +50,7 @@ fn client_verifier_works() {
         let server_config = server_config_with_verifier(*kt, client_verifier);
         let server_config = Arc::new(server_config);
 
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             let client_config = make_client_config_with_versions_with_auth(*kt, &[version]);
             let (mut client, mut server) =
                 make_pair_for_arc_configs(&Arc::new(client_config.clone()), &server_config);
@@ -69,7 +69,7 @@ fn client_verifier_no_schemes() {
         let server_config = server_config_with_verifier(*kt, client_verifier);
         let server_config = Arc::new(server_config);
 
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             let client_config = make_client_config_with_versions_with_auth(*kt, &[version]);
             let (mut client, mut server) =
                 make_pair_for_arc_configs(&Arc::new(client_config.clone()), &server_config);
@@ -92,7 +92,7 @@ fn client_verifier_no_auth_yes_root() {
         let server_config = server_config_with_verifier(*kt, client_verifier);
         let server_config = Arc::new(server_config);
 
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             let client_config = make_client_config_with_versions(*kt, &[version]);
             let mut server = ServerConnection::new(Arc::clone(&server_config)).unwrap();
             let mut client =
@@ -112,14 +112,14 @@ fn client_verifier_no_auth_yes_root() {
 }
 
 #[test]
-// Triple checks we propagate the rustls::Error through
+// Triple checks we propagate the watfaq_rustls::Error through
 fn client_verifier_fails_properly() {
     for kt in ALL_KEY_TYPES.iter() {
         let client_verifier = MockClientVerifier::new(ver_err, *kt);
         let server_config = server_config_with_verifier(*kt, client_verifier);
         let server_config = Arc::new(server_config);
 
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             let client_config = make_client_config_with_versions_with_auth(*kt, &[version]);
             let mut server = ServerConnection::new(Arc::clone(&server_config)).unwrap();
             let mut client =

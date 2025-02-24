@@ -493,8 +493,8 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "env_logger",
- "rustls 0.23.21",
  "rustls-post-quantum",
+ "watfaq-rustls",
 ]
 
 [[package]]
@@ -1315,7 +1315,7 @@ dependencies = [
  "ipnet",
  "once_cell",
  "rand",
- "rustls 0.23.20",
+ "rustls",
  "thiserror 2.0.10",
  "tinyvec",
  "tokio",
@@ -1340,7 +1340,7 @@ dependencies = [
  "parking_lot",
  "rand",
  "resolv-conf",
- "rustls 0.23.20",
+ "rustls",
  "smallvec",
  "thiserror 1.0.69",
  "tokio",
@@ -2444,44 +2444,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustls"
-version = "0.23.21"
-dependencies = [
- "aws-lc-rs",
- "base64",
- "bencher",
- "brotli",
- "brotli-decompressor",
- "env_logger",
- "hashbrown",
- "hex",
- "log",
- "macro_rules_attribute",
- "num-bigint",
- "once_cell",
- "rcgen",
- "ring",
- "rustls-pki-types",
- "rustls-webpki",
- "rustversion",
- "serde",
- "serde_json",
- "subtle",
- "time",
- "webpki-roots",
- "x509-parser",
- "zeroize",
- "zlib-rs",
-]
-
-[[package]]
 name = "rustls-bench"
 version = "0.1.0"
 dependencies = [
  "clap",
- "rustls 0.23.21",
  "rustls-post-quantum",
  "tikv-jemallocator",
+ "watfaq-rustls",
 ]
 
 [[package]]
@@ -2496,8 +2465,8 @@ dependencies = [
  "fxhash",
  "itertools 0.14.0",
  "rayon",
- "rustls 0.23.21",
  "tikv-jemallocator",
+ "watfaq-rustls",
 ]
 
 [[package]]
@@ -2507,8 +2476,8 @@ dependencies = [
  "hickory-resolver",
  "regex",
  "ring",
- "rustls 0.23.21",
  "tokio",
+ "watfaq-rustls",
 ]
 
 [[package]]
@@ -2522,9 +2491,9 @@ dependencies = [
  "log",
  "mio",
  "rcgen",
- "rustls 0.23.21",
  "serde",
  "tokio",
+ "watfaq-rustls",
  "webpki-roots",
 ]
 
@@ -2533,8 +2502,8 @@ name = "rustls-fuzzing-provider"
 version = "0.1.0"
 dependencies = [
  "env_logger",
- "rustls 0.23.21",
  "rustls-webpki",
+ "watfaq-rustls",
 ]
 
 [[package]]
@@ -2546,7 +2515,7 @@ dependencies = [
  "num-bigint",
  "once_cell",
  "openssl",
- "rustls 0.23.21",
+ "watfaq-rustls",
 ]
 
 [[package]]
@@ -2562,7 +2531,7 @@ dependencies = [
  "aws-lc-rs",
  "criterion",
  "env_logger",
- "rustls 0.23.21",
+ "watfaq-rustls",
  "webpki-roots",
 ]
 
@@ -2583,10 +2552,10 @@ dependencies = [
  "rand_core",
  "rcgen",
  "rsa",
- "rustls 0.23.21",
  "rustls-webpki",
  "sha2",
  "signature",
+ "watfaq-rustls",
  "webpki-roots",
  "x25519-dalek",
 ]
@@ -2596,10 +2565,10 @@ name = "rustls-provider-test"
 version = "0.1.0"
 dependencies = [
  "hex",
- "rustls 0.23.21",
  "rustls-provider-example",
  "serde",
  "serde_json",
+ "watfaq-rustls",
 ]
 
 [[package]]
@@ -2971,7 +2940,7 @@ version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f6d0975eaace0cf0fcadee4e4aaa5da15b5c079146f2cffb67c113be122bf37"
 dependencies = [
- "rustls 0.23.20",
+ "rustls",
  "tokio",
 ]
 
@@ -3176,6 +3145,37 @@ name = "wasm-bindgen-shared"
 version = "0.2.99"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "943aab3fdaaa029a6e0271b35ea10b72b943135afe9bffca82384098ad0e06a6"
+
+[[package]]
+name = "watfaq-rustls"
+version = "0.23.21"
+dependencies = [
+ "aws-lc-rs",
+ "base64",
+ "bencher",
+ "brotli",
+ "brotli-decompressor",
+ "env_logger",
+ "hashbrown",
+ "hex",
+ "log",
+ "macro_rules_attribute",
+ "num-bigint",
+ "once_cell",
+ "rcgen",
+ "ring",
+ "rustls-pki-types",
+ "rustls-webpki",
+ "rustversion",
+ "serde",
+ "serde_json",
+ "subtle",
+ "time",
+ "webpki-roots",
+ "x509-parser",
+ "zeroize",
+ "zlib-rs",
+]
 
 [[package]]
 name = "web-sys"

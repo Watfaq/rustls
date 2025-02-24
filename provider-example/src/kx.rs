@@ -1,8 +1,8 @@
 use alloc::boxed::Box;
 
 use crypto::SupportedKxGroup;
-use rustls::crypto;
-use rustls::ffdhe_groups::FfdheGroup;
+use watfaq_rustls::crypto;
+use watfaq_rustls::ffdhe_groups::FfdheGroup;
 
 pub struct KeyExchange {
     priv_key: x25519_dalek::EphemeralSecret,
@@ -13,10 +13,10 @@ impl crypto::ActiveKeyExchange for KeyExchange {
     fn complete(
         self: Box<KeyExchange>,
         peer: &[u8],
-    ) -> Result<crypto::SharedSecret, rustls::Error> {
+    ) -> Result<crypto::SharedSecret, watfaq_rustls::Error> {
         let peer_array: [u8; 32] = peer
             .try_into()
-            .map_err(|_| rustls::Error::from(rustls::PeerMisbehaved::InvalidKeyShare))?;
+            .map_err(|_| watfaq_rustls::Error::from(watfaq_rustls::PeerMisbehaved::InvalidKeyShare))?;
         let their_pub = x25519_dalek::PublicKey::from(peer_array);
         let shared_secret = self.priv_key.diffie_hellman(&their_pub);
         Ok(crypto::SharedSecret::from(&shared_secret.as_bytes()[..]))
@@ -30,7 +30,7 @@ impl crypto::ActiveKeyExchange for KeyExchange {
         None
     }
 
-    fn group(&self) -> rustls::NamedGroup {
+    fn group(&self) -> watfaq_rustls::NamedGroup {
         X25519.name()
     }
 }
@@ -41,7 +41,7 @@ pub const ALL_KX_GROUPS: &[&dyn SupportedKxGroup] = &[&X25519 as &dyn SupportedK
 pub struct X25519;
 
 impl crypto::SupportedKxGroup for X25519 {
-    fn start(&self) -> Result<Box<dyn crypto::ActiveKeyExchange>, rustls::Error> {
+    fn start(&self) -> Result<Box<dyn crypto::ActiveKeyExchange>, watfaq_rustls::Error> {
         let priv_key = x25519_dalek::EphemeralSecret::random_from_rng(rand_core::OsRng);
         Ok(Box::new(KeyExchange {
             pub_key: (&priv_key).into(),
@@ -53,7 +53,7 @@ impl crypto::SupportedKxGroup for X25519 {
         None
     }
 
-    fn name(&self) -> rustls::NamedGroup {
-        rustls::NamedGroup::X25519
+    fn name(&self) -> watfaq_rustls::NamedGroup {
+        watfaq_rustls::NamedGroup::X25519
     }
 }

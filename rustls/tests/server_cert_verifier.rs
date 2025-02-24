@@ -14,14 +14,14 @@ use common::{
     Altered, ErrorFromPeer, KeyType, MockServerVerifier, ALL_KEY_TYPES,
 };
 use pki_types::{CertificateDer, ServerName};
-use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-use rustls::client::WebPkiServerVerifier;
-use rustls::internal::msgs::handshake::{ClientExtension, HandshakePayload};
-use rustls::internal::msgs::message::{Message, MessagePayload};
-use rustls::server::{ClientHello, ResolvesServerCert};
-use rustls::sign::CertifiedKey;
-use rustls::version::{TLS12, TLS13};
-use rustls::{
+use watfaq_rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use watfaq_rustls::client::WebPkiServerVerifier;
+use watfaq_rustls::internal::msgs::handshake::{ClientExtension, HandshakePayload};
+use watfaq_rustls::internal::msgs::message::{Message, MessagePayload};
+use watfaq_rustls::server::{ClientHello, ResolvesServerCert};
+use watfaq_rustls::sign::CertifiedKey;
+use watfaq_rustls::version::{TLS12, TLS13};
+use watfaq_rustls::{
     AlertDescription, CertificateError, DigitallySignedStruct, DistinguishedName, Error,
     InvalidMessage, RootCertStore,
 };
@@ -35,7 +35,7 @@ fn client_can_override_certificate_verification() {
 
         let server_config = Arc::new(make_server_config(*kt));
 
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             let mut client_config = make_client_config_with_versions(*kt, &[version]);
             client_config
                 .dangerous()
@@ -57,7 +57,7 @@ fn client_can_override_certificate_verification_and_reject_certificate() {
 
         let server_config = Arc::new(make_server_config(*kt));
 
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             let mut client_config = make_client_config_with_versions(*kt, &[version]);
             client_config
                 .dangerous()
@@ -83,7 +83,7 @@ fn client_can_override_certificate_verification_and_reject_certificate() {
 #[test]
 fn client_can_override_certificate_verification_and_reject_tls12_signatures() {
     for kt in ALL_KEY_TYPES.iter() {
-        let mut client_config = make_client_config_with_versions(*kt, &[&rustls::version::TLS12]);
+        let mut client_config = make_client_config_with_versions(*kt, &[&watfaq_rustls::version::TLS12]);
         let verifier = Arc::new(MockServerVerifier::rejects_tls12_signatures(
             Error::InvalidMessage(InvalidMessage::HandshakePayloadTooLarge),
         ));
@@ -112,7 +112,7 @@ fn client_can_override_certificate_verification_and_reject_tls12_signatures() {
 #[test]
 fn client_can_override_certificate_verification_and_reject_tls13_signatures() {
     for kt in ALL_KEY_TYPES.iter() {
-        let mut client_config = make_client_config_with_versions(*kt, &[&rustls::version::TLS13]);
+        let mut client_config = make_client_config_with_versions(*kt, &[&watfaq_rustls::version::TLS13]);
         let verifier = Arc::new(MockServerVerifier::rejects_tls13_signatures(
             Error::InvalidMessage(InvalidMessage::HandshakePayloadTooLarge),
         ));
@@ -145,7 +145,7 @@ fn client_can_override_certificate_verification_and_offer_no_signature_schemes()
 
         let server_config = Arc::new(make_server_config(*kt));
 
-        for version in rustls::ALL_VERSIONS {
+        for version in watfaq_rustls::ALL_VERSIONS {
             let mut client_config = make_client_config_with_versions(*kt, &[version]);
             client_config
                 .dangerous()
@@ -158,7 +158,7 @@ fn client_can_override_certificate_verification_and_offer_no_signature_schemes()
                 errs,
                 Err(vec![
                     ErrorFromPeer::Server(Error::PeerIncompatible(
-                        rustls::PeerIncompatible::NoSignatureSchemesInCommon
+                        watfaq_rustls::PeerIncompatible::NoSignatureSchemesInCommon
                     )),
                     ErrorFromPeer::Client(Error::AlertReceived(AlertDescription::HandshakeFailure)),
                 ])
@@ -368,7 +368,7 @@ impl ServerCertVerifier for ServerCertVerifierWithCasExt {
             .verify_tls13_signature(message, cert, dss)
     }
 
-    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+    fn supported_verify_schemes(&self) -> Vec<watfaq_rustls::SignatureScheme> {
         self.verifier.supported_verify_schemes()
     }
 

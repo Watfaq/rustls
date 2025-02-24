@@ -1,10 +1,10 @@
 use num_bigint::BigUint;
-use rustls::crypto::{
+use watfaq_rustls::crypto::{
     aws_lc_rs as provider, ActiveKeyExchange, CipherSuiteCommon, KeyExchangeAlgorithm,
     SharedSecret, SupportedKxGroup,
 };
-use rustls::ffdhe_groups::FfdheGroup;
-use rustls::{CipherSuite, NamedGroup, SupportedCipherSuite, Tls12CipherSuite};
+use watfaq_rustls::ffdhe_groups::FfdheGroup;
+use watfaq_rustls::{CipherSuite, NamedGroup, SupportedCipherSuite, Tls12CipherSuite};
 
 /// The (test-only) TLS1.2 ciphersuite TLS_DHE_RSA_WITH_AES_128_GCM_SHA256
 pub static TLS_DHE_RSA_WITH_AES_128_GCM_SHA256: SupportedCipherSuite =
@@ -14,7 +14,7 @@ pub static TLS_DHE_RSA_WITH_AES_128_GCM_SHA256: SupportedCipherSuite =
 pub struct FfdheKxGroup(pub NamedGroup, pub FfdheGroup<'static>);
 
 impl SupportedKxGroup for FfdheKxGroup {
-    fn start(&self) -> Result<Box<dyn ActiveKeyExchange>, rustls::Error> {
+    fn start(&self) -> Result<Box<dyn ActiveKeyExchange>, watfaq_rustls::Error> {
         let mut x = vec![0; 64];
         provider::default_provider()
             .secure_random
@@ -68,7 +68,7 @@ struct ActiveFfdheKx {
 }
 
 impl ActiveKeyExchange for ActiveFfdheKx {
-    fn complete(self: Box<Self>, peer_pub_key: &[u8]) -> Result<SharedSecret, rustls::Error> {
+    fn complete(self: Box<Self>, peer_pub_key: &[u8]) -> Result<SharedSecret, watfaq_rustls::Error> {
         let peer_pub = BigUint::from_bytes_be(peer_pub_key);
         let secret = peer_pub.modpow(&self.x, &self.p);
         let secret = to_bytes_be_with_len(secret, self.group.p.len());

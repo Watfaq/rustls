@@ -1,9 +1,9 @@
 use std::io::Write;
 use std::sync::Arc;
 
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
-use rustls::server::Acceptor;
-use rustls::ServerConfig;
+use watfaq_rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use watfaq_rustls::server::Acceptor;
+use watfaq_rustls::ServerConfig;
 
 fn main() {
     env_logger::init();
@@ -98,7 +98,7 @@ impl TestPki {
                 .with_single_cert(vec![self.server_cert_der], self.server_key_der)
                 .unwrap();
 
-        server_config.key_log = Arc::new(rustls::KeyLogFile::new());
+        server_config.key_log = Arc::new(watfaq_rustls::KeyLogFile::new());
 
         Arc::new(server_config)
     }

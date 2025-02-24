@@ -84,15 +84,15 @@ impl ResumptionKind {
 #[derive(Clone, Debug)]
 pub struct BenchmarkParams {
     /// Which `CryptoProvider` to test
-    pub provider: rustls::crypto::CryptoProvider,
+    pub provider: watfaq_rustls::crypto::CryptoProvider,
     /// How to make a suitable [`rustls::server::ProducesTickets`].
-    pub ticketer: &'static fn() -> Arc<dyn rustls::server::ProducesTickets>,
+    pub ticketer: &'static fn() -> Arc<dyn watfaq_rustls::server::ProducesTickets>,
     /// The type of key used to sign the TLS certificate
     pub key_type: KeyType,
     /// Cipher suite
-    pub ciphersuite: rustls::SupportedCipherSuite,
+    pub ciphersuite: watfaq_rustls::SupportedCipherSuite,
     /// TLS version
-    pub version: &'static rustls::SupportedProtocolVersion,
+    pub version: &'static watfaq_rustls::SupportedProtocolVersion,
     /// A user-facing label that identifies these params
     pub label: String,
 }
@@ -100,11 +100,11 @@ pub struct BenchmarkParams {
 impl BenchmarkParams {
     /// Create a new set of benchmark params
     pub const fn new(
-        provider: rustls::crypto::CryptoProvider,
-        ticketer: &'static fn() -> Arc<dyn rustls::server::ProducesTickets>,
+        provider: watfaq_rustls::crypto::CryptoProvider,
+        ticketer: &'static fn() -> Arc<dyn watfaq_rustls::server::ProducesTickets>,
         key_type: KeyType,
-        ciphersuite: rustls::SupportedCipherSuite,
-        version: &'static rustls::SupportedProtocolVersion,
+        ciphersuite: watfaq_rustls::SupportedCipherSuite,
+        version: &'static watfaq_rustls::SupportedProtocolVersion,
         label: String,
     ) -> Self {
         Self {

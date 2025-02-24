@@ -10,24 +10,24 @@ use std::sync::Arc;
 use std::{env, net, process, thread, time};
 
 use base64::prelude::{Engine, BASE64_STANDARD};
-use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-use rustls::client::{
+use watfaq_rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use watfaq_rustls::client::{
     ClientConfig, ClientConnection, EchConfig, EchGreaseConfig, EchMode, EchStatus, Resumption,
     WebPkiServerVerifier,
 };
-use rustls::crypto::aws_lc_rs::hpke;
-use rustls::crypto::hpke::{Hpke, HpkePublicKey};
-use rustls::crypto::{aws_lc_rs, ring, CryptoProvider};
-use rustls::internal::msgs::codec::{Codec, Reader};
-use rustls::internal::msgs::handshake::EchConfigPayload;
-use rustls::internal::msgs::persist::ServerSessionValue;
-use rustls::pki_types::pem::PemObject;
-use rustls::pki_types::{CertificateDer, EchConfigListBytes, PrivateKeyDer, ServerName, UnixTime};
-use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
-use rustls::server::{
+use watfaq_rustls::crypto::aws_lc_rs::hpke;
+use watfaq_rustls::crypto::hpke::{Hpke, HpkePublicKey};
+use watfaq_rustls::crypto::{aws_lc_rs, ring, CryptoProvider};
+use watfaq_rustls::internal::msgs::codec::{Codec, Reader};
+use watfaq_rustls::internal::msgs::handshake::EchConfigPayload;
+use watfaq_rustls::internal::msgs::persist::ServerSessionValue;
+use watfaq_rustls::pki_types::pem::PemObject;
+use watfaq_rustls::pki_types::{CertificateDer, EchConfigListBytes, PrivateKeyDer, ServerName, UnixTime};
+use watfaq_rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
+use watfaq_rustls::server::{
     ClientHello, ProducesTickets, ServerConfig, ServerConnection, WebPkiClientVerifier,
 };
-use rustls::{
+use watfaq_rustls::{
     client, compress, server, sign, version, AlertDescription, CertificateCompressionAlgorithm,
     CertificateError, Connection, DigitallySignedStruct, DistinguishedName, Error, HandshakeKind,
     InvalidMessage, NamedGroup, PeerIncompatible, PeerMisbehaved, ProtocolVersion, RootCertStore,
@@ -1559,7 +1559,7 @@ pub fn main() {
             }
             #[cfg(feature = "fips")]
             "-fips-202205" if opts.selected_provider == SelectedProvider::AwsLcRsFips => {
-                opts.provider = rustls::crypto::default_fips_provider();
+                opts.provider = watfaq_rustls::crypto::default_fips_provider();
             }
             "-fips-202205" => {
                 println!("Not a FIPS build");

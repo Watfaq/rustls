@@ -40,13 +40,13 @@ use hickory_resolver::proto::rr::rdata::svcb::{SvcParamKey, SvcParamValue};
 use hickory_resolver::proto::rr::{RData, RecordType};
 use hickory_resolver::{ResolveError, Resolver, TokioResolver};
 use log::trace;
-use rustls::client::{EchConfig, EchGreaseConfig, EchMode, EchStatus};
-use rustls::crypto::aws_lc_rs;
-use rustls::crypto::aws_lc_rs::hpke::ALL_SUPPORTED_SUITES;
-use rustls::crypto::hpke::Hpke;
-use rustls::pki_types::pem::PemObject;
-use rustls::pki_types::{CertificateDer, EchConfigListBytes, ServerName};
-use rustls::RootCertStore;
+use watfaq_rustls::client::{EchConfig, EchGreaseConfig, EchMode, EchStatus};
+use watfaq_rustls::crypto::aws_lc_rs;
+use watfaq_rustls::crypto::aws_lc_rs::hpke::ALL_SUPPORTED_SUITES;
+use watfaq_rustls::crypto::hpke::Hpke;
+use watfaq_rustls::pki_types::pem::PemObject;
+use watfaq_rustls::pki_types::{CertificateDer, EchConfigListBytes, ServerName};
+use watfaq_rustls::RootCertStore;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -113,13 +113,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Construct a rustls client config with a custom provider, and ECH enabled.
     let mut config =
-        rustls::ClientConfig::builder_with_provider(aws_lc_rs::default_provider().into())
+        watfaq_rustls::ClientConfig::builder_with_provider(aws_lc_rs::default_provider().into())
             .with_ech(ech_mode)?
             .with_root_certificates(root_store)
             .with_no_client_auth();
 
     // Allow using SSLKEYLOGFILE.
-    config.key_log = Arc::new(rustls::KeyLogFile::new());
+    config.key_log = Arc::new(watfaq_rustls::KeyLogFile::new());
     let config = Arc::new(config);
 
     // The "inner" SNI that we're really trying to reach.
@@ -127,14 +127,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     for i in 0..args.num_reqs {
         trace!("\nRequest {} of {}", i + 1, args.num_reqs);
-        let mut conn = rustls::ClientConnection::new(config.clone(), server_name.clone())?;
+        let mut conn = watfaq_rustls::ClientConnection::new(config.clone(), server_name.clone())?;
         // The "outer" server that we're connecting to.
         let sock_addr = (args.outer_hostname.as_str(), args.port)
             .to_socket_addrs()?
             .next()
             .ok_or("cannot resolve hostname")?;
         let mut sock = TcpStream::connect(sock_addr)?;
-        let mut tls = rustls::Stream::new(&mut conn, &mut sock);
+        let mut tls = watfaq_rustls::Stream::new(&mut conn, &mut sock);
 
         let request =
             format!(

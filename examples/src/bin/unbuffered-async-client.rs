@@ -9,13 +9,13 @@ use std::sync::Arc;
 use async_std::io::{ReadExt, WriteExt};
 #[cfg(feature = "async-std")]
 use async_std::net::TcpStream;
-use rustls::client::{ClientConnectionData, UnbufferedClientConnection};
-use rustls::unbuffered::{
+use watfaq_rustls::client::{ClientConnectionData, UnbufferedClientConnection};
+use watfaq_rustls::unbuffered::{
     AppDataRecord, ConnectionState, EncodeError, EncryptError, InsufficientSizeError,
     UnbufferedStatus, WriteTraffic,
 };
-use rustls::version::TLS13;
-use rustls::{ClientConfig, RootCertStore};
+use watfaq_rustls::version::TLS13;
+use watfaq_rustls::{ClientConfig, RootCertStore};
 #[cfg(not(feature = "async-std"))]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 #[cfg(not(feature = "async-std"))]

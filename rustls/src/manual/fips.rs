@@ -8,7 +8,7 @@ these actions:
 Use:
 
 ```toml
-rustls = { version = "0.23", features = [ "fips" ] }
+watfaq-rustls = { version = "0.23", features = [ "fips" ] }
 ```
 
 ## 2. Use the FIPS `CryptoProvider`

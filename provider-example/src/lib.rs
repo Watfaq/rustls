@@ -6,8 +6,8 @@ extern crate std;
 
 use alloc::sync::Arc;
 
-use rustls::crypto::CryptoProvider;
-use rustls::pki_types::PrivateKeyDer;
+use watfaq_rustls::crypto::CryptoProvider;
+use watfaq_rustls::pki_types::PrivateKeyDer;
 
 mod aead;
 mod hash;
@@ -30,61 +30,61 @@ pub fn provider() -> CryptoProvider {
 #[derive(Debug)]
 struct Provider;
 
-impl rustls::crypto::SecureRandom for Provider {
-    fn fill(&self, bytes: &mut [u8]) -> Result<(), rustls::crypto::GetRandomFailed> {
+impl watfaq_rustls::crypto::SecureRandom for Provider {
+    fn fill(&self, bytes: &mut [u8]) -> Result<(), watfaq_rustls::crypto::GetRandomFailed> {
         use rand_core::RngCore;
         rand_core::OsRng
             .try_fill_bytes(bytes)
-            .map_err(|_| rustls::crypto::GetRandomFailed)
+            .map_err(|_| watfaq_rustls::crypto::GetRandomFailed)
     }
 }
 
-impl rustls::crypto::KeyProvider for Provider {
+impl watfaq_rustls::crypto::KeyProvider for Provider {
     fn load_private_key(
         &self,
         key_der: PrivateKeyDer<'static>,
-    ) -> Result<Arc<dyn rustls::sign::SigningKey>, rustls::Error> {
+    ) -> Result<Arc<dyn watfaq_rustls::sign::SigningKey>, watfaq_rustls::Error> {
         Ok(Arc::new(
             sign::EcdsaSigningKeyP256::try_from(key_der).map_err(|err| {
                 #[cfg(feature = "std")]
-                let err = rustls::OtherError(Arc::new(err));
+                let err = watfaq_rustls::OtherError(Arc::new(err));
                 #[cfg(not(feature = "std"))]
-                let err = rustls::Error::General(alloc::format!("{}", err));
+                let err = watfaq_rustls::Error::General(alloc::format!("{}", err));
                 err
             })?,
         ))
     }
 }
 
-static ALL_CIPHER_SUITES: &[rustls::SupportedCipherSuite] = &[
+static ALL_CIPHER_SUITES: &[watfaq_rustls::SupportedCipherSuite] = &[
     TLS13_CHACHA20_POLY1305_SHA256,
     TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 ];
 
-pub static TLS13_CHACHA20_POLY1305_SHA256: rustls::SupportedCipherSuite =
-    rustls::SupportedCipherSuite::Tls13(&rustls::Tls13CipherSuite {
-        common: rustls::crypto::CipherSuiteCommon {
-            suite: rustls::CipherSuite::TLS13_CHACHA20_POLY1305_SHA256,
+pub static TLS13_CHACHA20_POLY1305_SHA256: watfaq_rustls::SupportedCipherSuite =
+    watfaq_rustls::SupportedCipherSuite::Tls13(&watfaq_rustls::Tls13CipherSuite {
+        common: watfaq_rustls::crypto::CipherSuiteCommon {
+            suite: watfaq_rustls::CipherSuite::TLS13_CHACHA20_POLY1305_SHA256,
             hash_provider: &hash::Sha256,
             confidentiality_limit: u64::MAX,
         },
-        hkdf_provider: &rustls::crypto::tls13::HkdfUsingHmac(&hmac::Sha256Hmac),
+        hkdf_provider: &watfaq_rustls::crypto::tls13::HkdfUsingHmac(&hmac::Sha256Hmac),
         aead_alg: &aead::Chacha20Poly1305,
         quic: None,
     });
 
-pub static TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256: rustls::SupportedCipherSuite =
-    rustls::SupportedCipherSuite::Tls12(&rustls::Tls12CipherSuite {
-        common: rustls::crypto::CipherSuiteCommon {
-            suite: rustls::CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+pub static TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256: watfaq_rustls::SupportedCipherSuite =
+    watfaq_rustls::SupportedCipherSuite::Tls12(&watfaq_rustls::Tls12CipherSuite {
+        common: watfaq_rustls::crypto::CipherSuiteCommon {
+            suite: watfaq_rustls::CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
             hash_provider: &hash::Sha256,
             confidentiality_limit: u64::MAX,
         },
-        kx: rustls::crypto::KeyExchangeAlgorithm::ECDHE,
+        kx: watfaq_rustls::crypto::KeyExchangeAlgorithm::ECDHE,
         sign: &[
-            rustls::SignatureScheme::RSA_PSS_SHA256,
-            rustls::SignatureScheme::RSA_PKCS1_SHA256,
+            watfaq_rustls::SignatureScheme::RSA_PSS_SHA256,
+            watfaq_rustls::SignatureScheme::RSA_PKCS1_SHA256,
         ],
-        prf_provider: &rustls::crypto::tls12::PrfUsingHmac(&hmac::Sha256Hmac),
+        prf_provider: &watfaq_rustls::crypto::tls12::PrfUsingHmac(&hmac::Sha256Hmac),
         aead_alg: &aead::Chacha20Poly1305,
     });
