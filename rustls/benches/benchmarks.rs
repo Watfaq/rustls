@@ -8,8 +8,8 @@ mod test_utils;
 use std::io;
 use std::sync::Arc;
 
-use watfaq_rustls::ServerConnection;
 use test_utils::*;
+use watfaq_rustls::ServerConnection;
 
 fn bench_ewouldblock(c: &mut Bencher) {
     let server_config = make_server_config(KeyType::Rsa2048);

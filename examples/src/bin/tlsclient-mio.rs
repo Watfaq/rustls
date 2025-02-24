@@ -351,7 +351,8 @@ mod danger {
             _server_name: &ServerName<'_>,
             _ocsp: &[u8],
             _now: UnixTime,
-        ) -> Result<watfaq_rustls::client::danger::ServerCertVerified, watfaq_rustls::Error> {
+        ) -> Result<watfaq_rustls::client::danger::ServerCertVerified, watfaq_rustls::Error>
+        {
             Ok(watfaq_rustls::client::danger::ServerCertVerified::assertion())
         }
 

@@ -20,7 +20,9 @@ use watfaq_rustls::server::{
     NoServerSessionStorage, ProducesTickets, ServerSessionMemoryCache, UnbufferedServerConnection,
     WebPkiClientVerifier,
 };
-use watfaq_rustls::unbuffered::{ConnectionState, EncryptError, InsufficientSizeError, UnbufferedStatus};
+use watfaq_rustls::unbuffered::{
+    ConnectionState, EncryptError, InsufficientSizeError, UnbufferedStatus,
+};
 use watfaq_rustls::{
     CipherSuite, ClientConfig, ClientConnection, ConnectionCommon, Error, HandshakeKind,
     RootCertStore, ServerConfig, ServerConnection, SideData,

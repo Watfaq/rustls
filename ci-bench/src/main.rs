@@ -19,12 +19,13 @@ use watfaq_rustls::client::Resumption;
 use watfaq_rustls::crypto::{aws_lc_rs, ring, CryptoProvider, GetRandomFailed, SecureRandom};
 use watfaq_rustls::pki_types::pem::PemObject;
 use watfaq_rustls::pki_types::CertificateDer;
-use watfaq_rustls::server::{NoServerSessionStorage, ServerSessionMemoryCache, WebPkiClientVerifier};
+use watfaq_rustls::server::{
+    NoServerSessionStorage, ServerSessionMemoryCache, WebPkiClientVerifier,
+};
 use watfaq_rustls::{
     CipherSuite, ClientConfig, ClientConnection, HandshakeKind, ProtocolVersion, RootCertStore,
     ServerConfig, ServerConnection,
 };
-
 use crate::benchmark::{
     get_reported_instr_count, validate_benchmarks, Benchmark, BenchmarkKind, BenchmarkParams,
     ResumptionKind,

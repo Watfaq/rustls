@@ -14,9 +14,9 @@ impl crypto::ActiveKeyExchange for KeyExchange {
         self: Box<KeyExchange>,
         peer: &[u8],
     ) -> Result<crypto::SharedSecret, watfaq_rustls::Error> {
-        let peer_array: [u8; 32] = peer
-            .try_into()
-            .map_err(|_| watfaq_rustls::Error::from(watfaq_rustls::PeerMisbehaved::InvalidKeyShare))?;
+        let peer_array: [u8; 32] = peer.try_into().map_err(|_| {
+            watfaq_rustls::Error::from(watfaq_rustls::PeerMisbehaved::InvalidKeyShare)
+        })?;
         let their_pub = x25519_dalek::PublicKey::from(peer_array);
         let shared_secret = self.priv_key.diffie_hellman(&their_pub);
         Ok(crypto::SharedSecret::from(&shared_secret.as_bytes()[..]))

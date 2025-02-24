@@ -9,6 +9,10 @@ use std::sync::Arc;
 use async_std::io::{ReadExt, WriteExt};
 #[cfg(feature = "async-std")]
 use async_std::net::TcpStream;
+#[cfg(not(feature = "async-std"))]
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+#[cfg(not(feature = "async-std"))]
+use tokio::net::TcpStream;
 use watfaq_rustls::client::{ClientConnectionData, UnbufferedClientConnection};
 use watfaq_rustls::unbuffered::{
     AppDataRecord, ConnectionState, EncodeError, EncryptError, InsufficientSizeError,
@@ -16,10 +20,6 @@ use watfaq_rustls::unbuffered::{
 };
 use watfaq_rustls::version::TLS13;
 use watfaq_rustls::{ClientConfig, RootCertStore};
-#[cfg(not(feature = "async-std"))]
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-#[cfg(not(feature = "async-std"))]
-use tokio::net::TcpStream;
 
 #[cfg_attr(not(feature = "async-std"), tokio::main(flavor = "current_thread"))]
 #[cfg_attr(feature = "async-std", async_std::main)]

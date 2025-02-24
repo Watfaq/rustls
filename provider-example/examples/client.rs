@@ -11,12 +11,13 @@ fn main() {
             .cloned(),
     );
 
-    let config =
-        watfaq_rustls::ClientConfig::builder_with_provider(rustls_provider_example::provider().into())
-            .with_safe_default_protocol_versions()
-            .unwrap()
-            .with_root_certificates(root_store)
-            .with_no_client_auth();
+    let config = watfaq_rustls::ClientConfig::builder_with_provider(
+        rustls_provider_example::provider().into(),
+    )
+    .with_safe_default_protocol_versions()
+    .unwrap()
+    .with_root_certificates(root_store)
+    .with_no_client_auth();
 
     let server_name = "www.rust-lang.org".try_into().unwrap();
     let mut conn = watfaq_rustls::ClientConnection::new(Arc::new(config), server_name).unwrap();

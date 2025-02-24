@@ -3,10 +3,10 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use pkcs8::DecodePrivateKey;
+use signature::{RandomizedSigner, SignatureEncoding};
 use watfaq_rustls::pki_types::PrivateKeyDer;
 use watfaq_rustls::sign::{Signer, SigningKey};
 use watfaq_rustls::{SignatureAlgorithm, SignatureScheme};
-use signature::{RandomizedSigner, SignatureEncoding};
 
 #[derive(Clone, Debug)]
 pub struct EcdsaSigningKeyP256 {

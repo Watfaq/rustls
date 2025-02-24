@@ -9,7 +9,9 @@ mod client {
     use std::net::TcpStream;
     use std::sync::Arc;
 
-    use watfaq_rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+    use watfaq_rustls::client::danger::{
+        HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
+    };
     use watfaq_rustls::client::AlwaysResolvesClientRawPublicKeys;
     use watfaq_rustls::crypto::{
         aws_lc_rs as provider, verify_tls13_signature_with_raw_key, WebPkiSupportedAlgorithms,
@@ -165,7 +167,9 @@ mod server {
         aws_lc_rs as provider, verify_tls13_signature_with_raw_key, WebPkiSupportedAlgorithms,
     };
     use watfaq_rustls::pki_types::pem::PemObject;
-    use watfaq_rustls::pki_types::{CertificateDer, PrivateKeyDer, SubjectPublicKeyInfoDer, UnixTime};
+    use watfaq_rustls::pki_types::{
+        CertificateDer, PrivateKeyDer, SubjectPublicKeyInfoDer, UnixTime,
+    };
     use watfaq_rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
     use watfaq_rustls::server::AlwaysResolvesServerRawPublicKeys;
     use watfaq_rustls::sign::CertifiedKey;

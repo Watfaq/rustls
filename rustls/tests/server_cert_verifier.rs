@@ -14,7 +14,9 @@ use common::{
     Altered, ErrorFromPeer, KeyType, MockServerVerifier, ALL_KEY_TYPES,
 };
 use pki_types::{CertificateDer, ServerName};
-use watfaq_rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use watfaq_rustls::client::danger::{
+    HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
+};
 use watfaq_rustls::client::WebPkiServerVerifier;
 use watfaq_rustls::internal::msgs::handshake::{ClientExtension, HandshakePayload};
 use watfaq_rustls::internal::msgs::message::{Message, MessagePayload};
@@ -83,7 +85,8 @@ fn client_can_override_certificate_verification_and_reject_certificate() {
 #[test]
 fn client_can_override_certificate_verification_and_reject_tls12_signatures() {
     for kt in ALL_KEY_TYPES.iter() {
-        let mut client_config = make_client_config_with_versions(*kt, &[&watfaq_rustls::version::TLS12]);
+        let mut client_config =
+            make_client_config_with_versions(*kt, &[&watfaq_rustls::version::TLS12]);
         let verifier = Arc::new(MockServerVerifier::rejects_tls12_signatures(
             Error::InvalidMessage(InvalidMessage::HandshakePayloadTooLarge),
         ));
@@ -112,7 +115,8 @@ fn client_can_override_certificate_verification_and_reject_tls12_signatures() {
 #[test]
 fn client_can_override_certificate_verification_and_reject_tls13_signatures() {
     for kt in ALL_KEY_TYPES.iter() {
-        let mut client_config = make_client_config_with_versions(*kt, &[&watfaq_rustls::version::TLS13]);
+        let mut client_config =
+            make_client_config_with_versions(*kt, &[&watfaq_rustls::version::TLS13]);
         let verifier = Arc::new(MockServerVerifier::rejects_tls13_signatures(
             Error::InvalidMessage(InvalidMessage::HandshakePayloadTooLarge),
         ));

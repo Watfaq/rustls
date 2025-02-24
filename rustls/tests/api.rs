@@ -10,7 +10,9 @@ use std::sync::{Arc, Mutex};
 use std::{fmt, mem};
 
 use pki_types::{CertificateDer, IpAddr, ServerName, UnixTime};
-use watfaq_rustls::client::{verify_server_cert_signed_by_trust_anchor, ResolvesClientCert, Resumption};
+use watfaq_rustls::client::{
+    verify_server_cert_signed_by_trust_anchor, ResolvesClientCert, Resumption,
+};
 use watfaq_rustls::crypto::{ActiveKeyExchange, CryptoProvider, SharedSecret, SupportedKxGroup};
 use watfaq_rustls::internal::msgs::base::Payload;
 use watfaq_rustls::internal::msgs::codec::Codec;
@@ -140,7 +142,8 @@ mod test_raw_keys {
     #[test]
     fn only_server_supports_raw_keys() {
         for kt in ALL_KEY_TYPES {
-            let client_config = make_client_config_with_versions(*kt, &[&watfaq_rustls::version::TLS13]);
+            let client_config =
+                make_client_config_with_versions(*kt, &[&watfaq_rustls::version::TLS13]);
             let server_config_rpk = make_server_config_with_raw_key_support(*kt);
 
             let (mut client, mut server_rpk) =
@@ -574,24 +577,38 @@ fn versions() {
 
     // client 1.2, server 1.3 -> fail
     #[cfg(feature = "tls12")]
-    version_test(&[&watfaq_rustls::version::TLS12], &[&watfaq_rustls::version::TLS13], None);
+    version_test(
+        &[&watfaq_rustls::version::TLS12],
+        &[&watfaq_rustls::version::TLS13],
+        None,
+    );
 
     // client 1.3, server 1.2 -> fail
     #[cfg(feature = "tls12")]
-    version_test(&[&watfaq_rustls::version::TLS13], &[&watfaq_rustls::version::TLS12], None);
+    version_test(
+        &[&watfaq_rustls::version::TLS13],
+        &[&watfaq_rustls::version::TLS12],
+        None,
+    );
 
     // client 1.3, server 1.2+1.3 -> 1.3
     #[cfg(feature = "tls12")]
     version_test(
         &[&watfaq_rustls::version::TLS13],
-        &[&watfaq_rustls::version::TLS12, &watfaq_rustls::version::TLS13],
+        &[
+            &watfaq_rustls::version::TLS12,
+            &watfaq_rustls::version::TLS13,
+        ],
         Some(ProtocolVersion::TLSv1_3),
     );
 
     // client 1.2+1.3, server 1.2 -> 1.2
     #[cfg(feature = "tls12")]
     version_test(
-        &[&watfaq_rustls::version::TLS13, &watfaq_rustls::version::TLS12],
+        &[
+            &watfaq_rustls::version::TLS13,
+            &watfaq_rustls::version::TLS12,
+        ],
         &[&watfaq_rustls::version::TLS12],
         Some(ProtocolVersion::TLSv1_2),
     );
@@ -3563,7 +3580,8 @@ fn do_exporter_test(client_config: ClientConfig, server_config: ServerConfig) {
 #[test]
 fn test_tls12_exporter() {
     for kt in ALL_KEY_TYPES {
-        let client_config = make_client_config_with_versions(*kt, &[&watfaq_rustls::version::TLS12]);
+        let client_config =
+            make_client_config_with_versions(*kt, &[&watfaq_rustls::version::TLS12]);
         let server_config = make_server_config(*kt);
 
         do_exporter_test(client_config, server_config);
@@ -3573,7 +3591,8 @@ fn test_tls12_exporter() {
 #[test]
 fn test_tls13_exporter() {
     for kt in ALL_KEY_TYPES {
-        let client_config = make_client_config_with_versions(*kt, &[&watfaq_rustls::version::TLS13]);
+        let client_config =
+            make_client_config_with_versions(*kt, &[&watfaq_rustls::version::TLS13]);
         let server_config = make_server_config(*kt);
 
         do_exporter_test(client_config, server_config);
@@ -4860,10 +4879,12 @@ mod test_quic {
         }
 
         let kt = KeyType::Rsa2048;
-        let mut client_config = make_client_config_with_versions(kt, &[&watfaq_rustls::version::TLS13]);
+        let mut client_config =
+            make_client_config_with_versions(kt, &[&watfaq_rustls::version::TLS13]);
         client_config.enable_early_data = true;
         let client_config = Arc::new(client_config);
-        let mut server_config = make_server_config_with_versions(kt, &[&watfaq_rustls::version::TLS13]);
+        let mut server_config =
+            make_server_config_with_versions(kt, &[&watfaq_rustls::version::TLS13]);
         server_config.max_early_data_size = 0xffffffff;
         let server_config = Arc::new(server_config);
         let client_params = &b"client params"[..];
@@ -5060,7 +5081,8 @@ mod test_quic {
         let server_params = &b"server params"[..];
 
         for &kt in ALL_KEY_TYPES {
-            let client_config = make_client_config_with_versions(kt, &[&watfaq_rustls::version::TLS13]);
+            let client_config =
+                make_client_config_with_versions(kt, &[&watfaq_rustls::version::TLS13]);
             let client_config = Arc::new(client_config);
 
             let mut server_config =
@@ -5478,8 +5500,10 @@ mod test_quic {
     #[test]
     fn test_quic_exporter() {
         for &kt in ALL_KEY_TYPES {
-            let client_config = make_client_config_with_versions(kt, &[&watfaq_rustls::version::TLS13]);
-            let server_config = make_server_config_with_versions(kt, &[&watfaq_rustls::version::TLS13]);
+            let client_config =
+                make_client_config_with_versions(kt, &[&watfaq_rustls::version::TLS13]);
+            let server_config =
+                make_server_config_with_versions(kt, &[&watfaq_rustls::version::TLS13]);
 
             do_exporter_test(client_config, server_config);
         }
@@ -7562,7 +7586,8 @@ fn test_server_can_opt_out_of_compression_cache() {
 
     let mut server_config = make_server_config(KeyType::Rsa2048);
     server_config.cert_compressors = vec![&AlwaysInteractiveCompressor];
-    server_config.cert_compression_cache = Arc::new(watfaq_rustls::compress::CompressionCache::Disabled);
+    server_config.cert_compression_cache =
+        Arc::new(watfaq_rustls::compress::CompressionCache::Disabled);
     let mut client_config = make_client_config(KeyType::Rsa2048);
     client_config.resumption = Resumption::disabled();
 
@@ -7588,7 +7613,10 @@ fn test_server_can_opt_out_of_compression_cache() {
             level: watfaq_rustls::compress::CompressionLevel,
         ) -> Result<Vec<u8>, watfaq_rustls::compress::CompressionFailed> {
             dbg!(COMPRESS_COUNT.fetch_add(1, Ordering::SeqCst));
-            assert_eq!(level, watfaq_rustls::compress::CompressionLevel::Interactive);
+            assert_eq!(
+                level,
+                watfaq_rustls::compress::CompressionLevel::Interactive
+            );
             watfaq_rustls::compress::ZLIB_COMPRESSOR.compress(input, level)
         }
 

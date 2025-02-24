@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 
-use watfaq_rustls::crypto::hash;
 use sha2::Digest;
+use watfaq_rustls::crypto::hash;
 
 pub struct Sha256;
 

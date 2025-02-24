@@ -10,7 +10,9 @@ use pki_types::{
     CertificateDer, CertificateRevocationListDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName,
     SubjectPublicKeyInfoDer, UnixTime,
 };
-use watfaq_rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use watfaq_rustls::client::danger::{
+    HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
+};
 use watfaq_rustls::client::{
     AlwaysResolvesClientRawPublicKeys, ServerCertVerifierBuilder, WebPkiServerVerifier,
 };
@@ -433,7 +435,8 @@ impl KeyType {
     }
 }
 
-pub fn server_config_builder() -> watfaq_rustls::ConfigBuilder<ServerConfig, watfaq_rustls::WantsVerifier> {
+pub fn server_config_builder(
+) -> watfaq_rustls::ConfigBuilder<ServerConfig, watfaq_rustls::WantsVerifier> {
     // ensure `ServerConfig::builder()` is covered, even though it is
     // equivalent to `builder_with_provider(provider::provider().into())`.
     if exactly_one_provider() {
@@ -457,7 +460,8 @@ pub fn server_config_builder_with_versions(
     }
 }
 
-pub fn client_config_builder() -> watfaq_rustls::ConfigBuilder<ClientConfig, watfaq_rustls::WantsVerifier> {
+pub fn client_config_builder(
+) -> watfaq_rustls::ConfigBuilder<ClientConfig, watfaq_rustls::WantsVerifier> {
     // ensure `ClientConfig::builder()` is covered, even though it is
     // equivalent to `builder_with_provider(provider::provider().into())`.
     if exactly_one_provider() {

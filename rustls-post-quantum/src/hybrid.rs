@@ -1,4 +1,6 @@
-use watfaq_rustls::crypto::{ActiveKeyExchange, CompletedKeyExchange, SharedSecret, SupportedKxGroup};
+use watfaq_rustls::crypto::{
+    ActiveKeyExchange, CompletedKeyExchange, SharedSecret, SupportedKxGroup,
+};
 use watfaq_rustls::ffdhe_groups::FfdheGroup;
 use watfaq_rustls::{Error, NamedGroup, ProtocolVersion};
 

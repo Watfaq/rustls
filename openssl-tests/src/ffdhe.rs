@@ -68,7 +68,10 @@ struct ActiveFfdheKx {
 }
 
 impl ActiveKeyExchange for ActiveFfdheKx {
-    fn complete(self: Box<Self>, peer_pub_key: &[u8]) -> Result<SharedSecret, watfaq_rustls::Error> {
+    fn complete(
+        self: Box<Self>,
+        peer_pub_key: &[u8],
+    ) -> Result<SharedSecret, watfaq_rustls::Error> {
         let peer_pub = BigUint::from_bytes_be(peer_pub_key);
         let secret = peer_pub.modpow(&self.x, &self.p);
         let secret = to_bytes_be_with_len(secret, self.group.p.len());

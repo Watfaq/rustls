@@ -10,7 +10,9 @@ use std::sync::Arc;
 use std::{env, net, process, thread, time};
 
 use base64::prelude::{Engine, BASE64_STANDARD};
-use watfaq_rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use watfaq_rustls::client::danger::{
+    HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
+};
 use watfaq_rustls::client::{
     ClientConfig, ClientConnection, EchConfig, EchGreaseConfig, EchMode, EchStatus, Resumption,
     WebPkiServerVerifier,
@@ -22,7 +24,9 @@ use watfaq_rustls::internal::msgs::codec::{Codec, Reader};
 use watfaq_rustls::internal::msgs::handshake::EchConfigPayload;
 use watfaq_rustls::internal::msgs::persist::ServerSessionValue;
 use watfaq_rustls::pki_types::pem::PemObject;
-use watfaq_rustls::pki_types::{CertificateDer, EchConfigListBytes, PrivateKeyDer, ServerName, UnixTime};
+use watfaq_rustls::pki_types::{
+    CertificateDer, EchConfigListBytes, PrivateKeyDer, ServerName, UnixTime,
+};
 use watfaq_rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
 use watfaq_rustls::server::{
     ClientHello, ProducesTickets, ServerConfig, ServerConnection, WebPkiClientVerifier,
