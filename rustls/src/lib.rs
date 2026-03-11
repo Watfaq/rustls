@@ -563,6 +563,7 @@ pub mod client {
     mod ech;
     pub(super) mod handy;
     mod hs;
+    pub mod reality;
     #[cfg(feature = "tls12")]
     mod tls12;
     mod tls13;
@@ -576,6 +577,7 @@ pub mod client {
     pub use client_conn::{ClientConnection, WriteEarlyData};
     pub use ech::{EchConfig, EchGreaseConfig, EchMode, EchStatus};
     pub use handy::AlwaysResolvesClientRawPublicKeys;
+    pub use reality::{RealityConfig, RealityConfigError};
     #[cfg(any(feature = "std", feature = "hashbrown"))]
     pub use handy::ClientSessionMemoryCache;
 

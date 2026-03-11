@@ -4,7 +4,7 @@ use pki_types::PrivateKeyDer;
 pub(crate) use ring as ring_like;
 use webpki::ring as webpki_algs;
 
-use crate::crypto::{CryptoProvider, KeyProvider, SecureRandom};
+use crate::crypto::{CryptoProvider, KeyProvider, SecureRandom, X25519Provider};
 use crate::enums::SignatureScheme;
 use crate::rand::GetRandomFailed;
 use crate::sign::SigningKey;
@@ -36,6 +36,7 @@ pub fn default_provider() -> CryptoProvider {
         signature_verification_algorithms: SUPPORTED_SIG_ALGS,
         secure_random: &Ring,
         key_provider: &Ring,
+        x25519_provider: &Ring,
     }
 }
 
@@ -59,6 +60,40 @@ impl KeyProvider for Ring {
         key_der: PrivateKeyDer<'static>,
     ) -> Result<Arc<dyn SigningKey>, Error> {
         sign::any_supported_type(&key_der)
+    }
+}
+
+impl X25519Provider for Ring {
+    fn x25519_ecdh(&self, peer_public_key: &[u8; 32]) -> Result<([u8; 32], [u8; 32]), Error> {
+        use ring_like::agreement;
+        use ring_like::rand::SecureRandom;
+
+        let rng = ring_like::rand::SystemRandom::new();
+
+        // Generate ephemeral X25519 private key
+        let private_key = agreement::EphemeralPrivateKey::generate(&agreement::X25519, &rng)
+            .map_err(|_| Error::General("X25519 key generation failed".into()))?;
+
+        // Compute public key
+        let public_key = private_key
+            .compute_public_key()
+            .map_err(|_| Error::General("X25519 public key computation failed".into()))?;
+
+        let mut client_public = [0u8; 32];
+        client_public.copy_from_slice(public_key.as_ref());
+
+        // Perform ECDH
+        let peer_public =
+            agreement::UnparsedPublicKey::new(&agreement::X25519, peer_public_key);
+
+        let mut shared_secret = [0u8; 32];
+        agreement::agree_ephemeral(private_key, &peer_public, |key_material| {
+            shared_secret.copy_from_slice(key_material);
+            Ok(())
+        })
+        .map_err(|_| Error::General("X25519 ECDH failed".into()))?;
+
+        Ok((client_public, shared_secret))
     }
 }
 

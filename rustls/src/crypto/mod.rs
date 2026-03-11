@@ -214,6 +214,12 @@ pub struct CryptoProvider {
 
     /// Provider for loading private [SigningKey]s from [PrivateKeyDer].
     pub key_provider: &'static dyn KeyProvider,
+
+    /// Provider for X25519 key exchange operations.
+    ///
+    /// This is used by protocols that need direct X25519 ECDH functionality,
+    /// such as VLESS Reality protocol.
+    pub x25519_provider: &'static dyn X25519Provider,
 }
 
 impl CryptoProvider {
@@ -294,12 +300,14 @@ impl CryptoProvider {
             signature_verification_algorithms,
             secure_random,
             key_provider,
+            x25519_provider,
         } = self;
         cipher_suites.iter().all(|cs| cs.fips())
             && kx_groups.iter().all(|kx| kx.fips())
             && signature_verification_algorithms.fips()
             && secure_random.fips()
             && key_provider.fips()
+            && x25519_provider.fips()
     }
 }
 
@@ -316,6 +324,38 @@ pub trait SecureRandom: Send + Sync + Debug {
     /// an ephemeral key exchange key, but this is not included in the interface with
     /// rustls: it is assumed that the cryptography library provides for this itself.
     fn fill(&self, buf: &mut [u8]) -> Result<(), GetRandomFailed>;
+
+    /// Return `true` if this is backed by a FIPS-approved implementation.
+    fn fips(&self) -> bool {
+        false
+    }
+}
+
+/// A provider for X25519 key exchange operations.
+///
+/// This trait provides a unified interface for performing X25519 ECDH
+/// key exchange, abstracting over different cryptographic backends.
+pub trait X25519Provider: Send + Sync + Debug {
+    /// Perform X25519 ECDH with the given peer public key.
+    ///
+    /// This method:
+    /// 1. Generates an ephemeral X25519 keypair
+    /// 2. Computes the ECDH shared secret with `peer_public_key`
+    /// 3. Returns both the client's public key and the shared secret
+    ///
+    /// # Arguments
+    /// * `peer_public_key` - The peer's X25519 public key (32 bytes)
+    ///
+    /// # Returns
+    /// * `Ok((client_public, shared_secret))` on success, where:
+    ///   - `client_public`: The generated ephemeral public key (32 bytes)
+    ///   - `shared_secret`: The ECDH shared secret (32 bytes)
+    /// * `Err(Error)` if key generation or ECDH fails
+    ///
+    /// # Security
+    /// The ephemeral private key is generated using a cryptographically
+    /// secure random number generator and is securely erased after use.
+    fn x25519_ecdh(&self, peer_public_key: &[u8; 32]) -> Result<([u8; 32], [u8; 32]), Error>;
 
     /// Return `true` if this is backed by a FIPS-approved implementation.
     fn fips(&self) -> bool {

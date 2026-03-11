@@ -10,6 +10,7 @@ use pki_types::ServerName;
 #[cfg(feature = "tls12")]
 use super::tls12;
 use super::Tls12Resumption;
+use super::reality;
 #[cfg(feature = "logging")]
 use crate::bs_debug;
 use crate::check::inappropriate_handshake_message;
@@ -184,6 +185,15 @@ where
         _ => None,
     };
 
+    // Initialize Reality state if configured
+    let reality_state = config
+        .reality_config
+        .as_ref()
+        .map(|reality_config| {
+            reality::RealitySessionState::new(Arc::clone(reality_config), &config.provider)
+        })
+        .transpose()?;
+
     emit_client_hello_for_retry(
         transcript_buffer,
         None,
@@ -205,6 +215,7 @@ where
         },
         cx,
         ech_state,
+        reality_state,
     )
 }
 
@@ -245,6 +256,7 @@ fn emit_client_hello_for_retry<T>(
     mut input: ClientHelloInput,
     cx: &mut ClientContext<'_>,
     mut ech_state: Option<EchState>,
+    reality_state: Option<reality::RealitySessionState>,
 ) -> NextStateOrError<'static>
 where
     T: Fn(&[u8]) -> [u8; 32],
@@ -330,7 +342,11 @@ where
         (None, false) => {}
     };
 
-    if let Some(key_share) = &key_share {
+    // Add key_share extension
+    // Reality overrides the normal key_share with its own X25519 key
+    if let Some(ref reality) = reality_state {
+        exts.push(ClientExtension::KeyShare(vec![reality.key_share_entry()]));
+    } else if let Some(key_share) = &key_share {
         debug_assert!(support_tls13);
         let mut shares = vec![KeyShareEntry::new(key_share.group(), key_share.pub_key())];
 
@@ -555,6 +571,46 @@ where
         match &mut chp.payload {
             HandshakePayload::ClientHello(c) => {
                 c.session_id = session_id;
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    // Compute Reality session_id if Reality is enabled
+    if let Some(ref reality) = reality_state {
+        // Step 1: Set session_id to zero temporarily
+        let mut buffer = Vec::new();
+        match &mut chp.payload {
+            HandshakePayload::ClientHello(c) => {
+                c.session_id = SessionId {
+                    len: 32,
+                    data: [0; 32],
+                };
+            }
+            _ => unreachable!(),
+        }
+
+        // Step 2: Encode ClientHello with zero session_id
+        chp.encode(&mut buffer);
+
+        // Step 3: Get HKDF-SHA256 provider
+        let hkdf = reality::get_hkdf_sha256_from_config(&config.provider.cipher_suites)?;
+
+        // Step 4: Compute Reality session_id
+        let session_id_data = reality.compute_session_id(
+            &input.random,
+            &buffer,
+            hkdf,
+            config.time_provider.as_ref(),
+        )?;
+
+        // Step 5: Update session_id
+        match &mut chp.payload {
+            HandshakePayload::ClientHello(c) => {
+                c.session_id = SessionId {
+                    len: 32,
+                    data: session_id_data,
+                };
             }
             _ => unreachable!(),
         }
@@ -1190,6 +1246,7 @@ impl ExpectServerHelloOrHelloRetryRequest {
             self.next.input,
             cx,
             self.next.ech_state,
+            None, // Reality state not used in retry
         )
     }
 }
