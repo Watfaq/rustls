@@ -10,6 +10,7 @@ use pki_types::ServerName;
 #[cfg(feature = "tls12")]
 use super::tls12;
 use super::Tls12Resumption;
+use super::reality;
 #[cfg(feature = "logging")]
 use crate::bs_debug;
 use crate::check::inappropriate_handshake_message;
@@ -29,7 +30,7 @@ use crate::log::{debug, trace};
 use crate::msgs::base::Payload;
 use crate::msgs::codec::Codec;
 use crate::msgs::enums::{
-    CertificateType, Compression, ECPointFormat, ExtensionType, PSKKeyExchangeMode,
+    CertificateType, Compression, ECPointFormat, ExtensionType, NamedGroup, PSKKeyExchangeMode,
 };
 use crate::msgs::handshake::{
     CertificateStatusRequest, ClientExtension, ClientHelloPayload, ClientSessionTicket,
@@ -116,7 +117,25 @@ where
 
     let mut resuming = find_session(&server_name, &config, cx);
 
-    let key_share = if config.supports_version(ProtocolVersion::TLSv1_3) {
+    // Initialize Reality state if configured
+    let reality_state = config
+        .reality_config
+        .as_ref()
+        .map(|reality_config| {
+            reality::RealitySessionState::new(Arc::clone(reality_config), &config.provider)
+        })
+        .transpose()?;
+
+    // For Reality, use Reality's X25519 key exchange; otherwise use normal TLS
+    let key_share = if reality_state.is_some() {
+        // Reality provides its own key exchange (X25519)
+        // Set kx_state to X25519 group for Reality
+        let x25519_group = config
+            .find_kx_group(NamedGroup::X25519, ProtocolVersion::TLSv1_3)
+            .expect("X25519 group required for Reality");
+        cx.common.kx_state = KxState::Start(x25519_group);
+        None // Will be set later from reality_state
+    } else if config.supports_version(ProtocolVersion::TLSv1_3) {
         Some(tls13::initial_key_share(
             &config,
             &server_name,
@@ -205,6 +224,7 @@ where
         },
         cx,
         ech_state,
+        reality_state,
     )
 }
 
@@ -245,10 +265,21 @@ fn emit_client_hello_for_retry<T>(
     mut input: ClientHelloInput,
     cx: &mut ClientContext<'_>,
     mut ech_state: Option<EchState>,
+    reality_state: Option<reality::RealitySessionState>,
 ) -> NextStateOrError<'static>
 where
     T: Fn(&[u8]) -> [u8; 32],
 {
+    // If Reality is enabled, convert Reality state into ActiveKeyExchange
+    // This ensures the Reality shared secret is used for TLS key schedule
+    let (key_share, reality_key_share_entry) = if let Some(ref reality) = reality_state {
+        let entry = reality.key_share_entry();
+        let kx = reality.clone().into_key_exchange();
+        (Some(kx), Some(entry))
+    } else {
+        (key_share, None)
+    };
+
     let config = &input.config;
     // Defense in depth: the ECH state should be None if ECH is disabled based on config
     // builder semantics.
@@ -330,7 +361,12 @@ where
         (None, false) => {}
     };
 
-    if let Some(key_share) = &key_share {
+    // Add key_share extension
+    // If Reality is enabled, use Reality's key_share entry
+    // Otherwise use normal TLS key_share
+    if let Some(reality_entry) = reality_key_share_entry {
+        exts.push(ClientExtension::KeyShare(vec![reality_entry]));
+    } else if let Some(key_share) = &key_share {
         debug_assert!(support_tls13);
         let mut shares = vec![KeyShareEntry::new(key_share.group(), key_share.pub_key())];
 
@@ -555,6 +591,46 @@ where
         match &mut chp.payload {
             HandshakePayload::ClientHello(c) => {
                 c.session_id = session_id;
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    // Compute Reality session_id if Reality is enabled
+    if let Some(ref reality) = reality_state {
+        // Step 1: Set session_id to zero temporarily
+        let mut buffer = Vec::new();
+        match &mut chp.payload {
+            HandshakePayload::ClientHello(c) => {
+                c.session_id = SessionId {
+                    len: 32,
+                    data: [0; 32],
+                };
+            }
+            _ => unreachable!(),
+        }
+
+        // Step 2: Encode ClientHello with zero session_id
+        chp.encode(&mut buffer);
+
+        // Step 3: Get HKDF-SHA256 provider
+        let hkdf = reality::get_hkdf_sha256_from_config(&config.provider.cipher_suites)?;
+
+        // Step 4: Compute Reality session_id
+        let session_id_data = reality.compute_session_id(
+            &input.random,
+            &buffer,
+            hkdf,
+            config.time_provider.as_ref(),
+        )?;
+
+        // Step 5: Update session_id
+        match &mut chp.payload {
+            HandshakePayload::ClientHello(c) => {
+                c.session_id = SessionId {
+                    len: 32,
+                    data: session_id_data,
+                };
             }
             _ => unreachable!(),
         }
@@ -1190,6 +1266,7 @@ impl ExpectServerHelloOrHelloRetryRequest {
             self.next.input,
             cx,
             self.next.ech_state,
+            None, // Reality state not used in retry
         )
     }
 }

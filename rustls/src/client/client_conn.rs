@@ -264,6 +264,9 @@ pub struct ClientConfig {
 
     /// How to offer Encrypted Client Hello (ECH). The default is to not offer ECH.
     pub(super) ech_mode: Option<EchMode>,
+
+    /// VLESS Reality protocol configuration. The default is None (disabled).
+    pub(super) reality_config: Option<Arc<crate::client::reality::RealityConfig>>,
 }
 
 impl ClientConfig {

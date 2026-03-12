@@ -73,6 +73,7 @@ impl ConfigBuilder<ClientConfig, WantsVerifier> {
                 versions: self.state.versions,
                 verifier,
                 client_ech_mode: self.state.client_ech_mode,
+                reality_config: None,
             },
             provider: self.provider,
             time_provider: self.time_provider,
@@ -113,6 +114,7 @@ pub(super) mod danger {
                     versions: self.cfg.state.versions,
                     verifier,
                     client_ech_mode: self.cfg.state.client_ech_mode,
+                    reality_config: None,
                 },
                 provider: self.cfg.provider,
                 time_provider: self.cfg.time_provider,
@@ -131,9 +133,36 @@ pub struct WantsClientCert {
     versions: versions::EnabledVersions,
     verifier: Arc<dyn verify::ServerCertVerifier>,
     client_ech_mode: Option<EchMode>,
+    reality_config: Option<Arc<crate::client::reality::RealityConfig>>,
 }
 
 impl ConfigBuilder<ClientConfig, WantsClientCert> {
+    /// Enable VLESS Reality protocol
+    ///
+    /// Reality is a protocol extension that provides enhanced privacy by encrypting
+    /// the TLS session ID using a shared secret derived from X25519 ECDH.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use watfaq_rustls::client::RealityConfig;
+    /// # use watfaq_rustls::ClientConfig;
+    /// # let root_store = watfaq_rustls::RootCertStore::empty();
+    ///
+    /// let server_pubkey = [0u8; 32]; // Server's X25519 public key
+    /// let short_id = vec![0x12, 0x34, 0x56, 0x78];
+    /// let reality = RealityConfig::new(server_pubkey, short_id).unwrap();
+    ///
+    /// let config = ClientConfig::builder()
+    ///     .with_root_certificates(root_store)
+    ///     .with_reality(reality)
+    ///     .with_no_client_auth();
+    /// ```
+    pub fn with_reality(mut self, config: crate::client::reality::RealityConfig) -> Self {
+        self.state.reality_config = Some(Arc::new(config));
+        self
+    }
+
     /// Sets a single certificate chain and matching private key for use
     /// in client authentication.
     ///
@@ -186,6 +215,7 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
             cert_compression_cache: Arc::new(compress::CompressionCache::default()),
             cert_decompressors: compress::default_cert_decompressors().to_vec(),
             ech_mode: self.state.client_ech_mode,
+            reality_config: self.state.reality_config,
         }
     }
 }

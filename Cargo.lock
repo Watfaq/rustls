@@ -2485,6 +2485,7 @@ name = "rustls-examples"
 version = "0.0.1"
 dependencies = [
  "async-std",
+ "base64",
  "clap",
  "env_logger",
  "hickory-resolver",
