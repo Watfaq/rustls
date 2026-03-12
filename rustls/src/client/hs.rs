@@ -30,7 +30,7 @@ use crate::log::{debug, trace};
 use crate::msgs::base::Payload;
 use crate::msgs::codec::Codec;
 use crate::msgs::enums::{
-    CertificateType, Compression, ECPointFormat, ExtensionType, PSKKeyExchangeMode,
+    CertificateType, Compression, ECPointFormat, ExtensionType, NamedGroup, PSKKeyExchangeMode,
 };
 use crate::msgs::handshake::{
     CertificateStatusRequest, ClientExtension, ClientHelloPayload, ClientSessionTicket,
@@ -117,7 +117,25 @@ where
 
     let mut resuming = find_session(&server_name, &config, cx);
 
-    let key_share = if config.supports_version(ProtocolVersion::TLSv1_3) {
+    // Initialize Reality state if configured
+    let reality_state = config
+        .reality_config
+        .as_ref()
+        .map(|reality_config| {
+            reality::RealitySessionState::new(Arc::clone(reality_config), &config.provider)
+        })
+        .transpose()?;
+
+    // For Reality, use Reality's X25519 key exchange; otherwise use normal TLS
+    let key_share = if reality_state.is_some() {
+        // Reality provides its own key exchange (X25519)
+        // Set kx_state to X25519 group for Reality
+        let x25519_group = config
+            .find_kx_group(NamedGroup::X25519, ProtocolVersion::TLSv1_3)
+            .expect("X25519 group required for Reality");
+        cx.common.kx_state = KxState::Start(x25519_group);
+        None // Will be set later from reality_state
+    } else if config.supports_version(ProtocolVersion::TLSv1_3) {
         Some(tls13::initial_key_share(
             &config,
             &server_name,
@@ -184,15 +202,6 @@ where
         )?),
         _ => None,
     };
-
-    // Initialize Reality state if configured
-    let reality_state = config
-        .reality_config
-        .as_ref()
-        .map(|reality_config| {
-            reality::RealitySessionState::new(Arc::clone(reality_config), &config.provider)
-        })
-        .transpose()?;
 
     emit_client_hello_for_retry(
         transcript_buffer,
@@ -261,6 +270,16 @@ fn emit_client_hello_for_retry<T>(
 where
     T: Fn(&[u8]) -> [u8; 32],
 {
+    // If Reality is enabled, convert Reality state into ActiveKeyExchange
+    // This ensures the Reality shared secret is used for TLS key schedule
+    let (key_share, reality_key_share_entry) = if let Some(ref reality) = reality_state {
+        let entry = reality.key_share_entry();
+        let kx = reality.clone().into_key_exchange();
+        (Some(kx), Some(entry))
+    } else {
+        (key_share, None)
+    };
+
     let config = &input.config;
     // Defense in depth: the ECH state should be None if ECH is disabled based on config
     // builder semantics.
@@ -343,9 +362,10 @@ where
     };
 
     // Add key_share extension
-    // Reality overrides the normal key_share with its own X25519 key
-    if let Some(ref reality) = reality_state {
-        exts.push(ClientExtension::KeyShare(vec![reality.key_share_entry()]));
+    // If Reality is enabled, use Reality's key_share entry
+    // Otherwise use normal TLS key_share
+    if let Some(reality_entry) = reality_key_share_entry {
+        exts.push(ClientExtension::KeyShare(vec![reality_entry]));
     } else if let Some(key_share) = &key_share {
         debug_assert!(support_tls13);
         let mut shares = vec![KeyShareEntry::new(key_share.group(), key_share.pub_key())];

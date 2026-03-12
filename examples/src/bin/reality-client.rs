@@ -24,20 +24,6 @@
 //!   Vc8ycAgKqfRvtXjvGP0ry_U91o5wgrQlqOhHq72HYRs \
 //!   1bc2c1ef1c
 //! ```
-//!
-//! Note: You can directly copy-paste the values from airport Reality config!
-//!
-//! ## Method 2: Parsing airport Reality configuration format
-//!
-//! Many airports/VPN providers give Reality config in YAML format like:
-//! ```yaml
-//! reality-opts:
-//!     public-key: Vc8ycAgKqfRvtXjvGP0ry_U91o5wgrQlqOhHq72HYRs
-//!     short-id: 1bc2c1ef1c
-//! ```
-//!
-//! See the `parse_airport_reality_config()` function below for how to parse this format.
-//! The public-key is Base64 encoded and short-id is hexadecimal.
 
 use std::env;
 use std::io::{stdout, Read, Write};
@@ -51,31 +37,36 @@ use watfaq_rustls::RootCertStore;
 fn main() {
     // Parse command line arguments
     let args: Vec<String> = env::args().collect();
-    if args.len() != 4 {
-        eprintln!("Usage: {} <server_addr> <public_key_base64> <short_id_hex>", args[0]);
+    if args.len() != 5 {
+        eprintln!("Usage: {} <server_addr> <sni_servername> <public_key_base64> <short_id_hex>", args[0]);
         eprintln!();
         eprintln!("Parameters:");
-        eprintln!("  <server_addr>        Server address (e.g., example.com:443)");
+        eprintln!("  <server_addr>        Real server address (e.g., tw04.ctg.wtf:443)");
+        eprintln!("  <sni_servername>     SNI hostname for disguise (e.g., www.microsoft.com)");
         eprintln!("  <public_key_base64>  Server's X25519 public key in Base64 format");
         eprintln!("  <short_id_hex>       Client identifier in hexadecimal format");
         eprintln!();
-        eprintln!("Example (using airport Reality config):");
-        eprintln!("  {} example.com:443 \\", args[0]);
+        eprintln!("Example using VLESS Reality config:");
+        eprintln!("  If you have this config:");
+        eprintln!("    server: tw04.ctg.wtf");
+        eprintln!("    port: 443");
+        eprintln!("    servername: www.microsoft.com");
+        eprintln!("    reality-opts:");
+        eprintln!("      public-key: Vc8ycAgKqfRvtXjvGP0ry_U91o5wgrQlqOhHq72HYRs");
+        eprintln!("      short-id: 1bc2c1ef1c");
+        eprintln!();
+        eprintln!("Run:");
+        eprintln!("  {} tw04.ctg.wtf:443 \\", args[0]);
+        eprintln!("    www.microsoft.com \\");
         eprintln!("    Vc8ycAgKqfRvtXjvGP0ry_U91o5wgrQlqOhHq72HYRs \\");
         eprintln!("    1bc2c1ef1c");
-        eprintln!();
-        eprintln!("If you have airport Reality config in this format:");
-        eprintln!("  reality-opts:");
-        eprintln!("    public-key: Vc8ycAgKqfRvtXjvGP0ry_U91o5wgrQlqOhHq72HYRs");
-        eprintln!("    short-id: 1bc2c1ef1c");
-        eprintln!();
-        eprintln!("Just copy and paste the values directly!");
         std::process::exit(1);
     }
 
     let server_addr = args[1].clone();
-    let public_key_base64 = args[2].clone();
-    let short_id_hex = args[3].clone();
+    let sni_servername = args[2].clone();
+    let public_key_base64 = args[3].clone();
+    let short_id_hex = args[4].clone();
 
     // Parse server public key from Base64 (airport format)
     let server_pubkey = base64_to_bytes(&public_key_base64)
@@ -107,6 +98,8 @@ fn main() {
         std::process::exit(1);
     }
 
+    let short_id_len = short_id.len();
+
     // Create Reality configuration
     let reality_config = RealityConfig::new(server_pubkey, short_id)
         .unwrap_or_else(|e| {
@@ -117,6 +110,10 @@ fn main() {
     println!("Reality configuration created successfully");
     println!("  Server public key: {}", bytes_to_hex(&server_pubkey));
     println!("  Short ID: {}", short_id_hex);
+    println!("\nDebug Info:");
+    println!("  Base64 public key input: {}", public_key_base64);
+    println!("  Hex short_id input: {}", short_id_hex);
+    println!("  Short ID length: {} bytes", short_id_len);
 
     // Load root certificates
     let root_store = RootCertStore {
@@ -132,17 +129,14 @@ fn main() {
     // Allow using SSLKEYLOGFILE for debugging
     config.key_log = Arc::new(watfaq_rustls::KeyLogFile::new());
 
-    println!("\nConnecting to {}...", &server_addr);
+    println!("\nConnecting to {} (SNI: {})...", &server_addr, &sni_servername);
 
-    // Extract server name from address
-    let server_name: pki_types::ServerName<'static> = server_addr
-        .split(':')
-        .next()
-        .unwrap()
+    // Use SNI servername for TLS connection (for disguise/camouflage)
+    let server_name: pki_types::ServerName<'static> = sni_servername
         .to_string()
         .try_into()
         .unwrap_or_else(|e| {
-            eprintln!("Error parsing server name: {:?}", e);
+            eprintln!("Error parsing SNI servername: {:?}", e);
             std::process::exit(1);
         });
 
@@ -161,42 +155,36 @@ fn main() {
 
     let mut tls = watfaq_rustls::Stream::new(&mut conn, &mut sock);
 
-    // Complete the handshake first
-    println!("Performing TLS handshake...");
-    tls.conn.complete_io(&mut sock).unwrap_or_else(|e| {
-        eprintln!("Error during TLS handshake: {}", e);
-        std::process::exit(1);
-    });
-
-    println!("✓ TLS handshake completed successfully with Reality protocol!");
-
-    // Print negotiated cipher suite
-    if let Some(ciphersuite) = tls.conn.negotiated_cipher_suite() {
-        println!("✓ Cipher suite: {:?}", ciphersuite.suite());
-    }
-
-    // Print protocol version
-    if let Some(version) = tls.conn.protocol_version() {
-        println!("✓ Protocol version: {:?}", version);
-    }
-
     // Send a simple HTTP request
-    println!("\nSending HTTP request...");
+    println!("Performing TLS handshake and sending HTTP request...");
     let request = format!(
         "GET / HTTP/1.1\r\n\
          Host: {}\r\n\
          Connection: close\r\n\
          Accept-Encoding: identity\r\n\
          \r\n",
-        server_addr.split(':').next().unwrap()
+        sni_servername
     );
 
-    tls.write_all(request.as_bytes())
-        .unwrap_or_else(|e| {
-            eprintln!("Error sending request: {}", e);
-            std::process::exit(1);
-        });
+    if let Err(e) = tls.write_all(request.as_bytes()) {
+        eprintln!("\n❌ Error during TLS communication: {}", e);
+        eprintln!("\nPossible reasons:");
+        eprintln!("  1. Server's private key doesn't match the provided public key");
+        eprintln!("  2. Server is not a Reality-enabled server");
+        eprintln!("  3. Reality protocol version mismatch");
+        eprintln!("  4. Network/firewall issues");
+        std::process::exit(1);
+    }
 
+    println!("✓ TLS handshake completed successfully with Reality protocol!");
+
+    // Print connection details
+    if let Some(ciphersuite) = tls.conn.negotiated_cipher_suite() {
+        println!("✓ Cipher suite: {:?}", ciphersuite.suite());
+    }
+    if let Some(version) = tls.conn.protocol_version() {
+        println!("✓ Protocol version: {:?}", version);
+    }
     println!("✓ Request sent successfully");
 
     // Read and print response
@@ -236,79 +224,9 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
         .join("")
 }
 
-/// Example: Parse airport Reality configuration format
-///
-/// Many airports/VPN providers give Reality config in this format:
-/// ```yaml
-/// reality-opts:
-///     public-key: Vc8ycAgKqfRvtXjvGP0ry_U91o5wgrQlqOhHq72HYRs
-///     short-id: 1bc2c1ef1c
-/// ```
-///
-/// This function demonstrates how to parse such configuration into RealityConfig.
-///
-/// # Example
-///
-/// ```no_run
-/// use watfaq_rustls::client::RealityConfig;
-///
-/// // Configuration from airport
-/// let public_key_base64 = "Vc8ycAgKqfRvtXjvGP0ry_U91o5wgrQlqOhHq72HYRs";
-/// let short_id_hex = "1bc2c1ef1c";
-///
-/// // Parse public key from Base64
-/// let public_key_bytes = base64_to_bytes(public_key_base64)
-///     .expect("Invalid base64 public key");
-/// let mut public_key = [0u8; 32];
-/// public_key.copy_from_slice(&public_key_bytes);
-///
-/// // Parse short_id from hex
-/// let short_id = hex_to_bytes(short_id_hex)
-///     .expect("Invalid hex short_id");
-///
-/// // Create RealityConfig
-/// let reality_config = RealityConfig::new(public_key, short_id)
-///     .expect("Invalid Reality configuration");
-/// ```
-#[allow(dead_code)]
-fn parse_airport_reality_config(
-    public_key_base64: &str,
-    short_id_hex: &str,
-) -> Result<RealityConfig, String> {
-    // Parse public key from Base64
-    let public_key_bytes = base64_to_bytes(public_key_base64)
-        .map_err(|e| format!("Failed to decode public key: {}", e))?;
-
-    if public_key_bytes.len() != 32 {
-        return Err(format!(
-            "Invalid public key length: expected 32 bytes, got {}",
-            public_key_bytes.len()
-        ));
-    }
-
-    let mut public_key = [0u8; 32];
-    public_key.copy_from_slice(&public_key_bytes);
-
-    // Parse short_id from hex
-    let short_id = hex_to_bytes(short_id_hex)
-        .map_err(|e| format!("Failed to decode short_id: {}", e))?;
-
-    if short_id.len() > 8 {
-        return Err(format!(
-            "short_id too long: expected max 8 bytes, got {}",
-            short_id.len()
-        ));
-    }
-
-    // Create RealityConfig
-    RealityConfig::new(public_key, short_id)
-        .map_err(|e| format!("Failed to create RealityConfig: {}", e))
-}
-
 /// Helper function to decode Base64 string to bytes
 ///
 /// Supports both standard Base64 and Base64 URL-safe encoding.
-#[allow(dead_code)]
 fn base64_to_bytes(base64_str: &str) -> Result<Vec<u8>, String> {
     use base64::Engine;
 
@@ -321,43 +239,4 @@ fn base64_to_bytes(base64_str: &str) -> Result<Vec<u8>, String> {
     base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(base64_str)
         .map_err(|e| format!("Invalid Base64: {}", e))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_airport_reality_config() {
-        // Example configuration from an airport
-        let public_key_base64 = "Vc8ycAgKqfRvtXjvGP0ry_U91o5wgrQlqOhHq72HYRs";
-        let short_id_hex = "1bc2c1ef1c";
-
-        let config = parse_airport_reality_config(public_key_base64, short_id_hex);
-        assert!(config.is_ok(), "Should parse valid airport config");
-
-        let config = config.unwrap();
-        // Verify we can use it (this just checks it was created successfully)
-        drop(config);
-    }
-
-    #[test]
-    fn test_base64_to_bytes() {
-        // Standard Base64
-        let result = base64_to_bytes("SGVsbG8gV29ybGQ=");
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), b"Hello World");
-
-        // URL-safe Base64
-        let result = base64_to_bytes("Vc8ycAgKqfRvtXjvGP0ry_U91o5wgrQlqOhHq72HYRs");
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 32); // X25519 public key is 32 bytes
-    }
-
-    #[test]
-    fn test_hex_to_bytes() {
-        let result = hex_to_bytes("1bc2c1ef1c");
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), vec![0x1b, 0xc2, 0xc1, 0xef, 0x1c]);
-    }
 }

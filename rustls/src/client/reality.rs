@@ -2,26 +2,37 @@
 //!
 //! Reality is a protocol extension that provides enhanced privacy by encrypting
 //! the TLS session ID using a shared secret derived from X25519 ECDH with the
-//! server's public key.
+//! server's static public key.
 //!
 //! # Protocol Overview
 //!
-//! The Reality protocol works as follows:
-//! 1. Client generates ephemeral X25519 keypair
-//! 2. Client performs ECDH with server's public key to get shared_secret
-//! 3. Client derives auth_key using HKDF-SHA256(shared_secret, hello_random[:20], "REALITY")
+//! The Reality protocol uses a single X25519 keypair for two purposes:
+//!
+//! ## 1. Reality Authentication (session_id encryption)
+//! 1. Client generates ephemeral X25519 keypair (client_private, client_public)
+//! 2. Client performs ECDH with server's **static public key**: auth_shared_secret = ECDH(client_private, server_static_public_key)
+//! 3. Client derives auth_key using HKDF-SHA256(auth_shared_secret, hello_random[:20], "REALITY")
 //! 4. Client constructs 16-byte plaintext: [version(3) | reserved(1) | timestamp(4) | short_id(8)]
 //! 5. Client encrypts plaintext using AES-128-GCM with:
 //!    - key: auth_key
 //!    - nonce: hello_random[20..32]
 //!    - aad: full ClientHello bytes
 //! 6. Result (ciphertext + tag = 32 bytes) becomes the session_id
-//! 7. Client's public key is injected into the key_share extension
+//!
+//! ## 2. TLS Key Exchange (standard TLS 1.3 ECDHE)
+//! 7. Client's public key (client_public) is sent in the ClientHello key_share extension
+//! 8. Server responds with ServerHello containing its ephemeral public key
+//! 9. Client performs ECDH with server's **ephemeral public key**: tls_shared_secret = ECDH(client_private, server_hello_public_key)
+//! 10. tls_shared_secret is used for the TLS 1.3 key schedule (handshake and application traffic keys)
+//!
+//! **Key Point**: The same client_private is used for both ECDH operations, but with different
+//! server public keys, resulting in two different shared secrets for different purposes.
 
+use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-use crate::crypto::CryptoProvider;
+use crate::crypto::{ActiveKeyExchange, CryptoProvider, SecureRandom, SharedSecret};
 use crate::crypto::tls13::Hkdf;
 use crate::error::Error;
 use crate::msgs::enums::NamedGroup;
@@ -128,36 +139,135 @@ impl core::fmt::Display for RealityConfigError {
 #[cfg(feature = "std")]
 impl std::error::Error for RealityConfigError {}
 
+/// Generate X25519 keypair using ring
+#[cfg(all(feature = "ring", not(feature = "aws_lc_rs")))]
+fn x25519_generate_keypair(
+    secure_random: &dyn SecureRandom,
+) -> Result<([u8; 32], [u8; 32]), Error> {
+    use ring::agreement;
+
+    // Generate random private key
+    let mut private_bytes = [0u8; 32];
+    secure_random.fill(&mut private_bytes)?;
+
+    // Compute public key from private key using PrivateKey
+    let private_key = agreement::PrivateKey::from_private_key(&agreement::X25519, &private_bytes)
+        .map_err(|_| Error::General("X25519 private key creation failed".into()))?;
+
+    let public_key_bytes = private_key
+        .compute_public_key()
+        .map_err(|_| Error::General("X25519 public key computation failed".into()))?;
+
+    let mut public = [0u8; 32];
+    public.copy_from_slice(public_key_bytes.as_ref());
+
+    Ok((private_bytes, public))
+}
+
+/// Perform X25519 ECDH using ring
+#[cfg(all(feature = "ring", not(feature = "aws_lc_rs")))]
+fn x25519_ecdh(private_key: &[u8; 32], peer_public_key: &[u8; 32]) -> Result<[u8; 32], Error> {
+    use ring::agreement;
+
+    let private_key = agreement::PrivateKey::from_private_key(&agreement::X25519, private_key)
+        .map_err(|_| Error::General("X25519 private key creation failed".into()))?;
+
+    let peer_public =
+        agreement::UnparsedPublicKey::new(&agreement::X25519, peer_public_key.as_ref());
+
+    let mut shared_secret = [0u8; 32];
+    agreement::agree(&private_key, &peer_public, |key_material| {
+        shared_secret.copy_from_slice(key_material);
+        Ok(())
+    })
+    .map_err(|_| Error::General("X25519 ECDH failed".into()))?;
+
+    Ok(shared_secret)
+}
+
+/// Generate X25519 keypair using aws-lc-rs
+#[cfg(feature = "aws_lc_rs")]
+fn x25519_generate_keypair(
+    secure_random: &dyn SecureRandom,
+) -> Result<([u8; 32], [u8; 32]), Error> {
+    use aws_lc_rs::agreement;
+
+    // Generate random private key
+    let mut private_bytes = [0u8; 32];
+    secure_random.fill(&mut private_bytes)?;
+
+    // Compute public key from private key using PrivateKey
+    let private_key = agreement::PrivateKey::from_private_key(&agreement::X25519, &private_bytes)
+        .map_err(|_| Error::General("X25519 private key creation failed".into()))?;
+
+    let public_key_bytes = private_key
+        .compute_public_key()
+        .map_err(|_| Error::General("X25519 public key computation failed".into()))?;
+
+    let mut public = [0u8; 32];
+    public.copy_from_slice(public_key_bytes.as_ref());
+
+    Ok((private_bytes, public))
+}
+
+/// Perform X25519 ECDH using aws-lc-rs
+#[cfg(feature = "aws_lc_rs")]
+fn x25519_ecdh(private_key: &[u8; 32], peer_public_key: &[u8; 32]) -> Result<[u8; 32], Error> {
+    use aws_lc_rs::agreement;
+
+    let private_key = agreement::PrivateKey::from_private_key(&agreement::X25519, private_key)
+        .map_err(|_| Error::General("X25519 private key creation failed".into()))?;
+
+    let peer_public =
+        agreement::UnparsedPublicKey::new(&agreement::X25519, peer_public_key.as_ref());
+
+    let mut shared_secret = [0u8; 32];
+    agreement::agree(&private_key, &peer_public, (), |key_material| {
+        shared_secret.copy_from_slice(key_material);
+        Ok(())
+    })
+    .map_err(|_| Error::General("X25519 ECDH failed".into()))?;
+
+    Ok(shared_secret)
+}
+
 /// Internal state for Reality protocol during TLS handshake
 ///
 /// This struct holds the ephemeral keys and shared secret needed to compute
 /// the Reality session_id.
+#[derive(Clone)]
 pub(crate) struct RealitySessionState {
     config: Arc<RealityConfig>,
+    /// Client's ephemeral X25519 private key (32 bytes)
+    client_private: [u8; 32],
     /// Client's ephemeral X25519 public key (32 bytes)
     client_public: [u8; 32],
-    /// ECDH shared secret with server (32 bytes)
-    shared_secret: [u8; 32],
+    /// ECDH shared secret with server's static public key (32 bytes)
+    /// Used for Reality authentication (session_id encryption)
+    auth_shared_secret: [u8; 32],
 }
 
 impl RealitySessionState {
     /// Initialize Reality state by performing X25519 ECDH
     ///
     /// This generates an ephemeral X25519 keypair and performs ECDH with
-    /// the server's public key to derive the shared secret.
+    /// the server's static public key to derive the auth shared secret.
     pub(crate) fn new(
         config: Arc<RealityConfig>,
         crypto_provider: &CryptoProvider,
     ) -> Result<Self, Error> {
-        // Perform X25519 ECDH using the unified provider interface
-        let (client_public, shared_secret) = crypto_provider
-            .x25519_provider
-            .x25519_ecdh(&config.server_public_key)?;
+        // Step 1: Generate X25519 keypair
+        let (client_private, client_public) =
+            x25519_generate_keypair(crypto_provider.secure_random)?;
+
+        // Step 2: Perform ECDH with server's static public key (for Reality authentication)
+        let auth_shared_secret = x25519_ecdh(&client_private, &config.server_public_key)?;
 
         Ok(Self {
             config,
+            client_private,
             client_public,
-            shared_secret,
+            auth_shared_secret,
         })
     }
 
@@ -166,6 +276,16 @@ impl RealitySessionState {
     /// Returns a key_share entry containing the client's ephemeral X25519 public key.
     pub(crate) fn key_share_entry(&self) -> KeyShareEntry {
         KeyShareEntry::new(NamedGroup::X25519, self.client_public.to_vec())
+    }
+
+    /// Convert Reality state into an ActiveKeyExchange for TLS handshake
+    ///
+    /// This wraps the Reality X25519 keypair so it can be used in the TLS key schedule.
+    pub(crate) fn into_key_exchange(self) -> Box<dyn ActiveKeyExchange> {
+        Box::new(RealityKeyExchange {
+            client_private: self.client_private,
+            client_public: self.client_public,
+        })
     }
 
     /// Compute Reality session_id using the full protocol
@@ -187,9 +307,9 @@ impl RealitySessionState {
         time_provider: &dyn crate::time_provider::TimeProvider,
     ) -> Result<[u8; 32], Error> {
         // Step 1: Derive auth_key using HKDF-SHA256
-        // auth_key = HKDF(shared_secret, salt=hello_random[:20], info="REALITY")
+        // auth_key = HKDF(auth_shared_secret, salt=hello_random[:20], info="REALITY")
         let salt = &random.0[..20];
-        let auth_key_expander = hkdf.extract_from_secret(Some(salt), &self.shared_secret);
+        let auth_key_expander = hkdf.extract_from_secret(Some(salt), &self.auth_shared_secret);
 
         let mut auth_key = [0u8; 16];
         auth_key_expander
@@ -219,7 +339,48 @@ impl RealitySessionState {
             .try_into()
             .map_err(|_| Error::General("Invalid nonce length".into()))?;
 
-        aes_128_gcm_encrypt(&auth_key, nonce, hello_bytes, &plaintext)
+        let result = aes_128_gcm_encrypt(&auth_key, nonce, hello_bytes, &plaintext)?;
+
+        Ok(result)
+    }
+}
+
+/// ActiveKeyExchange implementation for Reality protocol
+///
+/// This wraps the Reality X25519 keypair to provide it to the TLS key schedule.
+/// Reality uses the same X25519 keypair for both:
+/// 1. Authentication ECDH with server's static public key (for session_id encryption)
+/// 2. TLS ECDH with server's ephemeral public key from ServerHello (for TLS key schedule)
+struct RealityKeyExchange {
+    client_private: [u8; 32],
+    client_public: [u8; 32],
+}
+
+impl ActiveKeyExchange for RealityKeyExchange {
+    /// Complete the key exchange
+    ///
+    /// Performs ECDH with the server's ephemeral public key from ServerHello
+    /// to derive the TLS shared secret for the key schedule.
+    fn complete(self: Box<Self>, peer_pub_key: &[u8]) -> Result<SharedSecret, Error> {
+        // Convert peer_pub_key to [u8; 32]
+        let peer_public: [u8; 32] = peer_pub_key
+            .try_into()
+            .map_err(|_| Error::General("Invalid peer public key length".into()))?;
+
+        // Perform ECDH with ServerHello's ephemeral public key (for TLS key schedule)
+        let tls_shared_secret = x25519_ecdh(&self.client_private, &peer_public)?;
+
+        Ok(SharedSecret::from(&tls_shared_secret[..]))
+    }
+
+    /// Return the client's public key
+    fn pub_key(&self) -> &[u8] {
+        &self.client_public
+    }
+
+    /// Return the named group (always X25519 for Reality)
+    fn group(&self) -> NamedGroup {
+        NamedGroup::X25519
     }
 }
 
@@ -376,7 +537,7 @@ mod tests {
 
     #[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
     #[test]
-    fn test_x25519_ecdh() {
+    fn test_x25519_keypair_and_ecdh() {
         // Install provider
         #[cfg(feature = "ring")]
         let _ = crate::crypto::ring::default_provider().install_default();
@@ -385,13 +546,48 @@ mod tests {
 
         let provider = crate::crypto::CryptoProvider::get_default().unwrap();
 
-        // Test that ECDH produces 32-byte outputs
-        let server_public = [2u8; 32];
-        let result = provider.x25519_provider.x25519_ecdh(&server_public);
+        // Test keypair generation
+        let result = x25519_generate_keypair(provider.secure_random);
         assert!(result.is_ok());
-        let (client_public, shared_secret) = result.unwrap();
-        assert_eq!(client_public.len(), 32);
+        let (private_key, public_key) = result.unwrap();
+        assert_eq!(private_key.len(), 32);
+        assert_eq!(public_key.len(), 32);
+
+        // Test ECDH with a test peer public key
+        let peer_public = [2u8; 32];
+        let result = x25519_ecdh(&private_key, &peer_public);
+        assert!(result.is_ok());
+        let shared_secret = result.unwrap();
         assert_eq!(shared_secret.len(), 32);
+    }
+
+    #[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
+    #[test]
+    fn test_reality_two_ecdh_operations() {
+        // Install provider
+        #[cfg(feature = "ring")]
+        let _ = crate::crypto::ring::default_provider().install_default();
+        #[cfg(all(not(feature = "ring"), feature = "aws_lc_rs"))]
+        let _ = crate::crypto::aws_lc_rs::default_provider().install_default();
+
+        let provider = crate::crypto::CryptoProvider::get_default().unwrap();
+
+        // Simulate server's static and ephemeral public keys
+        let server_static_pubkey = [0xAAu8; 32];
+        let server_ephemeral_pubkey = [0xBBu8; 32];
+
+        // Generate client keypair
+        let (client_private, _client_public) =
+            x25519_generate_keypair(provider.secure_random).unwrap();
+
+        // Perform ECDH with server's static public key (for Reality authentication)
+        let auth_secret = x25519_ecdh(&client_private, &server_static_pubkey).unwrap();
+
+        // Perform ECDH with server's ephemeral public key (for TLS key schedule)
+        let tls_secret = x25519_ecdh(&client_private, &server_ephemeral_pubkey).unwrap();
+
+        // The two shared secrets should be different
+        assert_ne!(auth_secret, tls_secret);
     }
 
     #[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
@@ -468,8 +664,9 @@ mod tests {
         assert!(state.is_ok());
 
         let state = state.unwrap();
+        assert_eq!(state.client_private.len(), 32);
         assert_eq!(state.client_public.len(), 32);
-        assert_eq!(state.shared_secret.len(), 32);
+        assert_eq!(state.auth_shared_secret.len(), 32);
     }
 
     #[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
