@@ -8,6 +8,17 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::benchmark::{
+    get_reported_instr_count, validate_benchmarks, Benchmark, BenchmarkKind, BenchmarkParams,
+    ResumptionKind,
+};
+use crate::callgrind::{CallgrindRunner, CountInstructions};
+use crate::util::async_io::{self, AsyncRead, AsyncWrite};
+use crate::util::transport::{
+    read_handshake_message, read_plaintext_to_end_bounded, send_handshake_message,
+    write_all_plaintext_bounded,
+};
+use crate::util::KeyType;
 use anyhow::Context;
 use async_trait::async_trait;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -26,17 +37,6 @@ use watfaq_rustls::{
     CipherSuite, ClientConfig, ClientConnection, HandshakeKind, ProtocolVersion, RootCertStore,
     ServerConfig, ServerConnection,
 };
-use crate::benchmark::{
-    get_reported_instr_count, validate_benchmarks, Benchmark, BenchmarkKind, BenchmarkParams,
-    ResumptionKind,
-};
-use crate::callgrind::{CallgrindRunner, CountInstructions};
-use crate::util::async_io::{self, AsyncRead, AsyncWrite};
-use crate::util::transport::{
-    read_handshake_message, read_plaintext_to_end_bounded, send_handshake_message,
-    write_all_plaintext_bounded,
-};
-use crate::util::KeyType;
 
 mod benchmark;
 mod callgrind;

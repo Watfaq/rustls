@@ -38,7 +38,10 @@ fn main() {
     // Parse command line arguments
     let args: Vec<String> = env::args().collect();
     if args.len() != 5 {
-        eprintln!("Usage: {} <server_addr> <sni_servername> <public_key_base64> <short_id_hex>", args[0]);
+        eprintln!(
+            "Usage: {} <server_addr> <sni_servername> <public_key_base64> <short_id_hex>",
+            args[0]
+        );
         eprintln!();
         eprintln!("Parameters:");
         eprintln!("  <server_addr>        Real server address (e.g., tw04.ctg.wtf:443)");
@@ -101,11 +104,10 @@ fn main() {
     let short_id_len = short_id.len();
 
     // Create Reality configuration
-    let reality_config = RealityConfig::new(server_pubkey, short_id)
-        .unwrap_or_else(|e| {
-            eprintln!("Error creating Reality config: {}", e);
-            std::process::exit(1);
-        });
+    let reality_config = RealityConfig::new(server_pubkey, short_id).unwrap_or_else(|e| {
+        eprintln!("Error creating Reality config: {}", e);
+        std::process::exit(1);
+    });
 
     println!("Reality configuration created successfully");
     println!("  Server public key: {}", bytes_to_hex(&server_pubkey));
@@ -129,7 +131,10 @@ fn main() {
     // Allow using SSLKEYLOGFILE for debugging
     config.key_log = Arc::new(watfaq_rustls::KeyLogFile::new());
 
-    println!("\nConnecting to {} (SNI: {})...", &server_addr, &sni_servername);
+    println!(
+        "\nConnecting to {} (SNI: {})...",
+        &server_addr, &sni_servername
+    );
 
     // Use SNI servername for TLS connection (for disguise/camouflage)
     let server_name: pki_types::ServerName<'static> = sni_servername
@@ -191,10 +196,11 @@ fn main() {
     println!("\nServer response:");
     println!("----------------------------------------");
     let mut plaintext = Vec::new();
-    tls.read_to_end(&mut plaintext).unwrap_or_else(|e| {
-        eprintln!("Error reading response: {}", e);
-        std::process::exit(1);
-    });
+    tls.read_to_end(&mut plaintext)
+        .unwrap_or_else(|e| {
+            eprintln!("Error reading response: {}", e);
+            std::process::exit(1);
+        });
     stdout().write_all(&plaintext).unwrap();
     println!("----------------------------------------");
     println!("\nConnection closed successfully");
@@ -202,15 +208,14 @@ fn main() {
 
 /// Helper function to convert hex string to bytes
 fn hex_to_bytes(hex: &str) -> Result<Vec<u8>, &'static str> {
-    if hex.len() % 2 != 0 {
+    if !hex.len().is_multiple_of(2) {
         return Err("Hex string must have even length");
     }
 
     let mut bytes = Vec::new();
     for i in (0..hex.len()).step_by(2) {
         let byte_str = &hex[i..i + 2];
-        let byte = u8::from_str_radix(byte_str, 16)
-            .map_err(|_| "Invalid hex character")?;
+        let byte = u8::from_str_radix(byte_str, 16).map_err(|_| "Invalid hex character")?;
         bytes.push(byte);
     }
     Ok(bytes)
@@ -218,7 +223,8 @@ fn hex_to_bytes(hex: &str) -> Result<Vec<u8>, &'static str> {
 
 /// Helper function to convert bytes to hex string
 fn bytes_to_hex(bytes: &[u8]) -> String {
-    bytes.iter()
+    bytes
+        .iter()
         .map(|b| format!("{:02x}", b))
         .collect::<Vec<_>>()
         .join("")

@@ -173,7 +173,6 @@
 //!
 //! ```rust
 //! # #[cfg(feature = "aws_lc_rs")] {
-//! # use rustls;
 //! # use webpki;
 //! # use std::sync::Arc;
 //! # watfaq_rustls::crypto::aws_lc_rs::default_provider().install_default();
@@ -577,9 +576,9 @@ pub mod client {
     pub use client_conn::{ClientConnection, WriteEarlyData};
     pub use ech::{EchConfig, EchGreaseConfig, EchMode, EchStatus};
     pub use handy::AlwaysResolvesClientRawPublicKeys;
-    pub use reality::{RealityConfig, RealityConfigError};
     #[cfg(any(feature = "std", feature = "hashbrown"))]
     pub use handy::ClientSessionMemoryCache;
+    pub use reality::{RealityConfig, RealityConfigError};
 
     /// Dangerous configuration that should be audited and used with extreme care.
     pub mod danger {

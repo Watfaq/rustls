@@ -3506,7 +3506,7 @@ impl sign::SigningKey for SigningKeyNoneSpki {
 struct SigningKeySomeSpki;
 
 impl sign::SigningKey for SigningKeySomeSpki {
-    fn public_key(&self) -> Option<pki_types::SubjectPublicKeyInfoDer> {
+    fn public_key(&self) -> Option<pki_types::SubjectPublicKeyInfoDer<'_>> {
         let chain = KeyType::Rsa2048.get_chain();
         let cert = ParsedCertificate::try_from(chain.first().unwrap()).unwrap();
         Some(
