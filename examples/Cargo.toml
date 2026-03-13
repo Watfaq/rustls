@@ -15,7 +15,7 @@ hickory-resolver = { workspace = true }
 log = { workspace = true }
 mio = { workspace = true }
 rcgen = { workspace = true }
-watfaq-rustls = { path = "../rustls", features = [ "logging" ]}
+watfaq-rustls = { path = "../rustls", features = [ "logging" ] }
 serde = { workspace = true }
 tokio = { workspace = true }
 webpki-roots = { workspace = true }

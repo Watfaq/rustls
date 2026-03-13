@@ -7,10 +7,10 @@ use core::ops::Deref;
 
 use pki_types::ServerName;
 
+use super::reality;
 #[cfg(feature = "tls12")]
 use super::tls12;
 use super::Tls12Resumption;
-use super::reality;
 #[cfg(feature = "logging")]
 use crate::bs_debug;
 use crate::check::inappropriate_handshake_message;
@@ -132,7 +132,7 @@ where
         // Set kx_state to X25519 group for Reality
         let x25519_group = config
             .find_kx_group(NamedGroup::X25519, ProtocolVersion::TLSv1_3)
-            .expect("X25519 group required for Reality");
+            .ok_or(Error::General("X25519 group required for Reality".into()))?;
         cx.common.kx_state = KxState::Start(x25519_group);
         None // Will be set later from reality_state
     } else if config.supports_version(ProtocolVersion::TLSv1_3) {
@@ -171,7 +171,7 @@ where
                 }
                 Some(inner.session_id)
             }
-            _ => None,
+            _ => None::<SessionId>,
         }
     } else {
         debug!("Not resuming any session");
@@ -235,6 +235,7 @@ struct ExpectServerHello {
     offered_key_share: Option<Box<dyn ActiveKeyExchange>>,
     suite: Option<SupportedCipherSuite>,
     ech_state: Option<EchState>,
+    reality_state: Option<reality::RealitySessionState>,
 }
 
 struct ExpectServerHelloOrHelloRetryRequest {
@@ -552,6 +553,47 @@ where
         payload: HandshakePayload::ClientHello(chp_payload),
     };
 
+    // Compute Reality session_id BEFORE PSK binder to avoid invalidating the binder
+    // Reality uses ClientHello with session_id=0 as AAD, so this order is safe
+    if let Some(ref reality) = reality_state {
+        // Step 1: Set session_id to zero temporarily
+        let mut buffer = Vec::new();
+        match &mut chp.payload {
+            HandshakePayload::ClientHello(c) => {
+                c.session_id = SessionId {
+                    len: 32,
+                    data: [0; 32],
+                };
+            }
+            _ => unreachable!(),
+        }
+
+        // Step 2: Encode ClientHello with zero session_id (for AAD)
+        chp.encode(&mut buffer);
+
+        // Step 3: Get HKDF-SHA256 provider
+        let hkdf = reality::get_hkdf_sha256_from_config(&config.provider.cipher_suites)?;
+
+        // Step 4: Compute Reality session_id
+        let session_id_data = reality.compute_session_id(
+            &input.random,
+            &buffer,
+            hkdf,
+            config.time_provider.as_ref(),
+        )?;
+
+        // Step 5: Update session_id with computed Reality value
+        match &mut chp.payload {
+            HandshakePayload::ClientHello(c) => {
+                c.session_id = SessionId {
+                    len: 32,
+                    data: session_id_data,
+                };
+            }
+            _ => unreachable!(),
+        }
+    }
+
     let early_key_schedule = match (ech_state.as_mut(), tls13_session) {
         // If we're performing ECH and resuming, then the PSK binder will have been dealt with
         // separately, and we need to take the early_data_key_schedule computed for the inner hello.
@@ -561,7 +603,7 @@ where
             .map(|schedule| (tls13_session.suite(), schedule)),
 
         // When we're not doing ECH and resuming, then the PSK binder need to be filled in as
-        // normal.
+        // normal. Reality session_id has been set above, so PSK binder will see the correct value.
         (_, Some(tls13_session)) => Some((
             tls13_session.suite(),
             tls13::fill_in_psk_binder(&tls13_session, &transcript_buffer, &mut chp),
@@ -591,46 +633,6 @@ where
         match &mut chp.payload {
             HandshakePayload::ClientHello(c) => {
                 c.session_id = session_id;
-            }
-            _ => unreachable!(),
-        }
-    }
-
-    // Compute Reality session_id if Reality is enabled
-    if let Some(ref reality) = reality_state {
-        // Step 1: Set session_id to zero temporarily
-        let mut buffer = Vec::new();
-        match &mut chp.payload {
-            HandshakePayload::ClientHello(c) => {
-                c.session_id = SessionId {
-                    len: 32,
-                    data: [0; 32],
-                };
-            }
-            _ => unreachable!(),
-        }
-
-        // Step 2: Encode ClientHello with zero session_id
-        chp.encode(&mut buffer);
-
-        // Step 3: Get HKDF-SHA256 provider
-        let hkdf = reality::get_hkdf_sha256_from_config(&config.provider.cipher_suites)?;
-
-        // Step 4: Compute Reality session_id
-        let session_id_data = reality.compute_session_id(
-            &input.random,
-            &buffer,
-            hkdf,
-            config.time_provider.as_ref(),
-        )?;
-
-        // Step 5: Update session_id
-        match &mut chp.payload {
-            HandshakePayload::ClientHello(c) => {
-                c.session_id = SessionId {
-                    len: 32,
-                    data: session_id_data,
-                };
             }
             _ => unreachable!(),
         }
@@ -698,6 +700,7 @@ where
         offered_key_share: key_share,
         suite,
         ech_state,
+        reality_state,
     };
 
     Ok(if support_tls13 && retryreq.is_none() {
@@ -1266,7 +1269,7 @@ impl ExpectServerHelloOrHelloRetryRequest {
             self.next.input,
             cx,
             self.next.ech_state,
-            None, // Reality state not used in retry
+            self.next.reality_state,
         )
     }
 }

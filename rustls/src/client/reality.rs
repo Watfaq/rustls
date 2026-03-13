@@ -32,12 +32,12 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-use crate::crypto::{ActiveKeyExchange, CryptoProvider, SecureRandom, SharedSecret};
 use crate::crypto::tls13::Hkdf;
+use crate::crypto::{ActiveKeyExchange, CryptoProvider, SecureRandom, SharedSecret};
+use crate::enums::CipherSuite;
 use crate::error::Error;
 use crate::msgs::enums::NamedGroup;
 use crate::msgs::handshake::{KeyShareEntry, Random};
-use crate::enums::CipherSuite;
 use crate::SupportedCipherSuite;
 
 /// VLESS Reality protocol configuration
@@ -126,10 +126,10 @@ pub enum RealityConfigError {
 impl core::fmt::Display for RealityConfigError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            RealityConfigError::ShortIdTooLong => {
+            Self::ShortIdTooLong => {
                 write!(f, "Reality short_id must be at most 8 bytes")
             }
-            RealityConfigError::CryptoError(msg) => {
+            Self::CryptoError(msg) => {
                 write!(f, "Reality crypto error: {}", msg)
             }
         }
@@ -443,7 +443,7 @@ fn aes_128_gcm_encrypt_ring(
 }
 
 /// AES-128-GCM encryption using aws-lc-rs
-#[cfg(feature = "aws_lc_rs")]
+#[cfg(all(not(feature = "ring"), feature = "aws_lc_rs"))]
 fn aes_128_gcm_encrypt_aws_lc_rs(
     key: &[u8; 16],
     nonce: &[u8; 12],
@@ -473,7 +473,7 @@ fn aes_128_gcm_encrypt_aws_lc_rs(
 fn current_timestamp(time_provider: &dyn crate::time_provider::TimeProvider) -> Result<u32, Error> {
     let now = time_provider
         .current_time()
-        .ok_or_else(|| Error::General("Time unavailable".into()))?;
+        .ok_or(Error::FailedToGetCurrentTime)?;
     Ok((now.as_secs() % (1u64 << 32)) as u32)
 }
 
@@ -544,7 +544,7 @@ mod tests {
         #[cfg(all(not(feature = "ring"), feature = "aws_lc_rs"))]
         let _ = crate::crypto::aws_lc_rs::default_provider().install_default();
 
-        let provider = crate::crypto::CryptoProvider::get_default().unwrap();
+        let provider = CryptoProvider::get_default().unwrap();
 
         // Test keypair generation
         let result = x25519_generate_keypair(provider.secure_random);
@@ -570,7 +570,7 @@ mod tests {
         #[cfg(all(not(feature = "ring"), feature = "aws_lc_rs"))]
         let _ = crate::crypto::aws_lc_rs::default_provider().install_default();
 
-        let provider = crate::crypto::CryptoProvider::get_default().unwrap();
+        let provider = CryptoProvider::get_default().unwrap();
 
         // Simulate server's static and ephemeral public keys
         let server_static_pubkey = [0xAAu8; 32];
@@ -625,7 +625,7 @@ mod tests {
         let mut plaintext = [0u8; 16];
         plaintext[0..3].copy_from_slice(&config.client_version);
         plaintext[3] = 0; // reserved
-        // Skip timestamp for this test
+                          // Skip timestamp for this test
         plaintext[8..12].copy_from_slice(&config.short_id);
         // Rest should be zeros (padding)
 
@@ -657,10 +657,9 @@ mod tests {
         let config = Arc::new(RealityConfig::new(server_pk, short_id).unwrap());
 
         // Get the default crypto provider
-        let provider = CryptoProvider::get_default()
-            .expect("No default crypto provider installed");
+        let provider = CryptoProvider::get_default().expect("No default crypto provider installed");
 
-        let state = RealitySessionState::new(config, &provider);
+        let state = RealitySessionState::new(config, provider);
         assert!(state.is_ok());
 
         let state = state.unwrap();
@@ -685,10 +684,9 @@ mod tests {
         let short_id = vec![0x12, 0x34];
         let config = Arc::new(RealityConfig::new(server_pk, short_id).unwrap());
 
-        let provider = CryptoProvider::get_default()
-            .expect("No default crypto provider installed");
+        let provider = CryptoProvider::get_default().expect("No default crypto provider installed");
 
-        let state = RealitySessionState::new(config, &provider).unwrap();
+        let state = RealitySessionState::new(config, provider).unwrap();
         let key_share = state.key_share_entry();
 
         // Verify key_share uses X25519
@@ -724,10 +722,9 @@ mod tests {
         let short_id = vec![0x12, 0x34, 0x56, 0x78];
         let config = Arc::new(RealityConfig::new(server_pk, short_id).unwrap());
 
-        let provider = CryptoProvider::get_default()
-            .expect("No default crypto provider installed");
+        let provider = CryptoProvider::get_default().expect("No default crypto provider installed");
 
-        let state = RealitySessionState::new(config.clone(), &provider).unwrap();
+        let state = RealitySessionState::new(config.clone(), provider).unwrap();
 
         // Create a mock random value
         let random = Random([0u8; 32]);
