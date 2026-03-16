@@ -159,6 +159,13 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
     ///     .with_no_client_auth();
     /// ```
     pub fn with_reality(mut self, config: crate::client::reality::RealityConfig) -> Self {
+        #[cfg(feature = "std")]
+        {
+            use crate::client::reality::RealityServerCertVerifier;
+            let auth_key_slot = Arc::clone(&config.auth_key_slot);
+            let inner = Arc::clone(&self.state.verifier);
+            self.state.verifier = RealityServerCertVerifier::new(auth_key_slot, inner);
+        }
         self.state.reality_config = Some(Arc::new(config));
         self
     }

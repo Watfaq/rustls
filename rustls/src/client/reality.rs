@@ -11,9 +11,9 @@
 //! ## 1. Reality Authentication (session_id encryption)
 //! 1. Client generates ephemeral X25519 keypair (client_private, client_public)
 //! 2. Client performs ECDH with server's **static public key**: auth_shared_secret = ECDH(client_private, server_static_public_key)
-//! 3. Client derives auth_key using HKDF-SHA256(auth_shared_secret, hello_random[:20], "REALITY")
+//! 3. Client derives auth_key using HKDF-SHA256(auth_shared_secret, hello_random[:20], "REALITY") → 32 bytes
 //! 4. Client constructs 16-byte plaintext: [version(3) | reserved(1) | timestamp(4) | short_id(8)]
-//! 5. Client encrypts plaintext using AES-128-GCM with:
+//! 5. Client encrypts plaintext using AES-256-GCM with:
 //!    - key: auth_key
 //!    - nonce: hello_random[20..32]
 //!    - aad: full ClientHello bytes
@@ -39,6 +39,9 @@ use crate::error::Error;
 use crate::msgs::enums::NamedGroup;
 use crate::msgs::handshake::{KeyShareEntry, Random};
 use crate::SupportedCipherSuite;
+
+#[cfg(feature = "std")]
+use std::sync::Mutex;
 
 /// VLESS Reality protocol configuration
 ///
@@ -70,6 +73,10 @@ pub struct RealityConfig {
     short_id: Vec<u8>,
     /// Protocol version (3 bytes, default [0, 0, 0])
     client_version: [u8; 3],
+    /// Shared slot for the derived auth_key, populated during handshake
+    /// and consumed by RealityServerCertVerifier
+    #[cfg(feature = "std")]
+    pub(crate) auth_key_slot: Arc<Mutex<Option<[u8; 32]>>>,
 }
 
 impl RealityConfig {
@@ -101,6 +108,8 @@ impl RealityConfig {
             server_public_key,
             short_id,
             client_version: [0, 0, 0],
+            #[cfg(feature = "std")]
+            auth_key_slot: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -308,10 +317,11 @@ impl RealitySessionState {
     ) -> Result<[u8; 32], Error> {
         // Step 1: Derive auth_key using HKDF-SHA256
         // auth_key = HKDF(auth_shared_secret, salt=hello_random[:20], info="REALITY")
+        // Key is 32 bytes → used with AES-256-GCM (matching Xray reference implementation)
         let salt = &random.0[..20];
         let auth_key_expander = hkdf.extract_from_secret(Some(salt), &self.auth_shared_secret);
 
-        let mut auth_key = [0u8; 16];
+        let mut auth_key = [0u8; 32];
         auth_key_expander
             .expand_slice(&[b"REALITY"], &mut auth_key)
             .map_err(|_| Error::General("HKDF expand failed".into()))?;
@@ -332,14 +342,20 @@ impl RealitySessionState {
         plaintext[8..8 + short_id_len].copy_from_slice(&self.config.short_id);
         // Remaining bytes are already zero
 
-        // Step 3: AES-128-GCM encryption
+        // Step 3: AES-256-GCM encryption
         // nonce = hello_random[20..32] (12 bytes)
         // aad = full ClientHello bytes
         let nonce: &[u8; 12] = random.0[20..32]
             .try_into()
             .map_err(|_| Error::General("Invalid nonce length".into()))?;
 
-        let result = aes_128_gcm_encrypt(&auth_key, nonce, hello_bytes, &plaintext)?;
+        let result = aes_256_gcm_encrypt(&auth_key, nonce, hello_bytes, &plaintext)?;
+
+        // Store auth_key in the slot so RealityServerCertVerifier can use it
+        #[cfg(feature = "std")]
+        if let Some(mut slot) = self.config.auth_key_slot.lock().ok() {
+            *slot = Some(auth_key);
+        }
 
         Ok(result)
     }
@@ -387,23 +403,25 @@ impl ActiveKeyExchange for RealityKeyExchange {
 // X25519 ECDH is now handled through the unified CryptoProvider::x25519_provider interface
 // No need for provider-specific implementations here
 
-/// AES-128-GCM encryption for Reality session_id
+/// AES-256-GCM encryption for Reality session_id
 ///
 /// Encrypts 16-byte plaintext and returns ciphertext + tag (32 bytes total).
-fn aes_128_gcm_encrypt(
-    key: &[u8; 16],
+/// Uses a 32-byte key, matching the Xray reference implementation which derives
+/// a 32-byte AuthKey via HKDF-SHA256 and uses it with AES-256-GCM.
+fn aes_256_gcm_encrypt(
+    key: &[u8; 32],
     nonce: &[u8; 12],
     aad: &[u8],
     plaintext: &[u8; 16],
 ) -> Result<[u8; 32], Error> {
     #[cfg(feature = "ring")]
     {
-        aes_128_gcm_encrypt_ring(key, nonce, aad, plaintext)
+        aes_256_gcm_encrypt_ring(key, nonce, aad, plaintext)
     }
 
     #[cfg(all(not(feature = "ring"), feature = "aws_lc_rs"))]
     {
-        aes_128_gcm_encrypt_aws_lc_rs(key, nonce, aad, plaintext)
+        aes_256_gcm_encrypt_aws_lc_rs(key, nonce, aad, plaintext)
     }
 
     #[cfg(not(any(feature = "ring", feature = "aws_lc_rs")))]
@@ -414,18 +432,18 @@ fn aes_128_gcm_encrypt(
     }
 }
 
-/// AES-128-GCM encryption using ring
+/// AES-256-GCM encryption using ring
 #[cfg(feature = "ring")]
-fn aes_128_gcm_encrypt_ring(
-    key: &[u8; 16],
+fn aes_256_gcm_encrypt_ring(
+    key: &[u8; 32],
     nonce: &[u8; 12],
     aad: &[u8],
     plaintext: &[u8; 16],
 ) -> Result<[u8; 32], Error> {
     use ring::aead;
 
-    let unbound_key = aead::UnboundKey::new(&aead::AES_128_GCM, key)
-        .map_err(|_| Error::General("AES-128-GCM key creation failed".into()))?;
+    let unbound_key = aead::UnboundKey::new(&aead::AES_256_GCM, key)
+        .map_err(|_| Error::General("AES-256-GCM key creation failed".into()))?;
     let sealing_key = aead::LessSafeKey::new(unbound_key);
 
     let mut in_out = plaintext.to_vec();
@@ -434,7 +452,7 @@ fn aes_128_gcm_encrypt_ring(
 
     sealing_key
         .seal_in_place_append_tag(nonce, aad, &mut in_out)
-        .map_err(|_| Error::General("AES-128-GCM encryption failed".into()))?;
+        .map_err(|_| Error::General("AES-256-GCM encryption failed".into()))?;
 
     // in_out now contains: plaintext (16 bytes) + tag (16 bytes) = 32 bytes
     let mut result = [0u8; 32];
@@ -442,18 +460,18 @@ fn aes_128_gcm_encrypt_ring(
     Ok(result)
 }
 
-/// AES-128-GCM encryption using aws-lc-rs
+/// AES-256-GCM encryption using aws-lc-rs
 #[cfg(all(not(feature = "ring"), feature = "aws_lc_rs"))]
-fn aes_128_gcm_encrypt_aws_lc_rs(
-    key: &[u8; 16],
+fn aes_256_gcm_encrypt_aws_lc_rs(
+    key: &[u8; 32],
     nonce: &[u8; 12],
     aad: &[u8],
     plaintext: &[u8; 16],
 ) -> Result<[u8; 32], Error> {
     use aws_lc_rs::aead;
 
-    let unbound_key = aead::UnboundKey::new(&aead::AES_128_GCM, key)
-        .map_err(|_| Error::General("AES-128-GCM key creation failed".into()))?;
+    let unbound_key = aead::UnboundKey::new(&aead::AES_256_GCM, key)
+        .map_err(|_| Error::General("AES-256-GCM key creation failed".into()))?;
     let sealing_key = aead::LessSafeKey::new(unbound_key);
 
     let mut in_out = plaintext.to_vec();
@@ -462,7 +480,7 @@ fn aes_128_gcm_encrypt_aws_lc_rs(
 
     sealing_key
         .seal_in_place_append_tag(nonce, aad, &mut in_out)
-        .map_err(|_| Error::General("AES-128-GCM encryption failed".into()))?;
+        .map_err(|_| Error::General("AES-256-GCM encryption failed".into()))?;
 
     let mut result = [0u8; 32];
     result.copy_from_slice(&in_out);
@@ -492,6 +510,238 @@ pub(crate) fn get_hkdf_sha256_from_config(
             None
         })
         .ok_or_else(|| Error::General("No SHA256 HKDF available for Reality".into()))
+}
+
+// ============================================================================
+// RealityServerCertVerifier
+// ============================================================================
+
+/// Extract the Ed25519 public key bytes from a REALITY server certificate DER.
+///
+/// REALITY server certs embed an Ed25519 public key. We locate it by searching
+/// for the Ed25519 OID (1.3.101.112 = `06 03 2b 65 70`) followed by a BIT
+/// STRING header (`03 21 00`) and then 32 bytes of public key material.
+fn extract_ed25519_pubkey_from_reality_cert(cert_der: &[u8]) -> Option<[u8; 32]> {
+    // Ed25519 OID bytes: 06 03 2b 65 70
+    const OID: [u8; 5] = [0x06, 0x03, 0x2b, 0x65, 0x70];
+    // BIT STRING: 03 (tag) 21 (length=33) 00 (unused bits=0)
+    const BIT_STRING_HDR: [u8; 3] = [0x03, 0x21, 0x00];
+
+    let n = cert_der.len();
+    if n < OID.len() + BIT_STRING_HDR.len() + 32 {
+        return None;
+    }
+
+    for i in 0..n.saturating_sub(OID.len()) {
+        if cert_der[i..i + OID.len()] != OID {
+            continue;
+        }
+        // OID found; scan forward a small window for the BIT STRING header
+        let search_end = (i + OID.len() + 16).min(n.saturating_sub(BIT_STRING_HDR.len() + 32));
+        for j in (i + OID.len())..=search_end {
+            if cert_der[j..j + BIT_STRING_HDR.len()] == BIT_STRING_HDR {
+                let key_start = j + BIT_STRING_HDR.len();
+                if key_start + 32 <= n {
+                    let mut pubkey = [0u8; 32];
+                    pubkey.copy_from_slice(&cert_der[key_start..key_start + 32]);
+                    return Some(pubkey);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Constant-time byte slice comparison.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// Compute HMAC-SHA512 using ring
+#[cfg(feature = "ring")]
+fn hmac_sha512(key: &[u8; 32], data: &[u8]) -> [u8; 64] {
+    use ring::hmac;
+    let k = hmac::Key::new(hmac::HMAC_SHA512, key);
+    let tag = hmac::sign(&k, data);
+    let mut out = [0u8; 64];
+    out.copy_from_slice(tag.as_ref());
+    out
+}
+
+/// Compute HMAC-SHA512 using aws-lc-rs
+#[cfg(all(not(feature = "ring"), feature = "aws_lc_rs"))]
+fn hmac_sha512(key: &[u8; 32], data: &[u8]) -> [u8; 64] {
+    use aws_lc_rs::hmac;
+    let k = hmac::Key::new(hmac::HMAC_SHA512, key);
+    let tag = hmac::sign(&k, data);
+    let mut out = [0u8; 64];
+    out.copy_from_slice(tag.as_ref());
+    out
+}
+
+/// Verify an Ed25519 signature using ring
+#[cfg(feature = "ring")]
+fn ed25519_verify(pubkey: &[u8; 32], message: &[u8], signature: &[u8]) -> bool {
+    use ring::signature;
+    let pk = signature::UnparsedPublicKey::new(&signature::ED25519, pubkey.as_ref());
+    pk.verify(message, signature).is_ok()
+}
+
+/// Verify an Ed25519 signature using aws-lc-rs
+#[cfg(all(not(feature = "ring"), feature = "aws_lc_rs"))]
+fn ed25519_verify(pubkey: &[u8; 32], message: &[u8], signature: &[u8]) -> bool {
+    use aws_lc_rs::signature;
+    let pk = signature::UnparsedPublicKey::new(&signature::ED25519, pubkey.as_ref());
+    pk.verify(message, signature).is_ok()
+}
+
+/// Check whether a certificate is a valid REALITY server certificate.
+///
+/// Returns `Some(Ok(...))` if the cert passes REALITY HMAC verification,
+/// `None` if it does not look like a REALITY cert (caller should try the
+/// inner verifier), and `Some(Err(...))` on internal error.
+#[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
+fn verify_reality_cert(
+    cert: &pki_types::CertificateDer<'_>,
+    auth_key: &[u8; 32],
+) -> Option<Result<crate::verify::ServerCertVerified, Error>> {
+    let cert_bytes = cert.as_ref();
+    if cert_bytes.len() < 64 {
+        return None;
+    }
+
+    let pubkey = extract_ed25519_pubkey_from_reality_cert(cert_bytes)?;
+
+    let expected = hmac_sha512(auth_key, &pubkey);
+    let cert_tail = &cert_bytes[cert_bytes.len() - 64..];
+
+    if constant_time_eq(&expected, cert_tail) {
+        Some(Ok(crate::verify::ServerCertVerified::assertion()))
+    } else {
+        // HMAC mismatch — not a Reality cert for this session
+        None
+    }
+}
+
+#[cfg(not(any(feature = "ring", feature = "aws_lc_rs")))]
+fn verify_reality_cert(
+    _cert: &pki_types::CertificateDer<'_>,
+    _auth_key: &[u8; 32],
+) -> Option<Result<crate::verify::ServerCertVerified, Error>> {
+    None
+}
+
+/// A `ServerCertVerifier` that understands REALITY's custom certificate format.
+///
+/// REALITY servers present a minimal Ed25519 X.509v1 certificate whose last
+/// 64 bytes are overwritten with `HMAC-SHA512(auth_key, ed25519_public_key)`.
+/// Standard verifiers (e.g. webpki) reject this cert as `BadEncoding` because
+/// X.509v1 certs lack the `version` field that webpki requires.
+///
+/// This verifier first attempts the REALITY HMAC check; if it passes the cert
+/// is accepted without a CA chain. If it fails (normal TLS destination), the
+/// inner verifier is tried.
+///
+/// `verify_tls13_signature` similarly tries the inner verifier first; if that
+/// fails it falls back to direct Ed25519 verification using the pubkey found
+/// in the cert DER.
+#[cfg(feature = "std")]
+#[derive(Debug)]
+pub struct RealityServerCertVerifier {
+    /// Slot containing the auth_key computed during ClientHello construction
+    auth_key_slot: Arc<Mutex<Option<[u8; 32]>>>,
+    /// Fallback verifier (used when the cert is not a REALITY cert)
+    inner: Arc<dyn crate::verify::ServerCertVerifier>,
+}
+
+#[cfg(feature = "std")]
+impl RealityServerCertVerifier {
+    /// Create a new verifier wrapping `inner`.
+    pub fn new(
+        auth_key_slot: Arc<Mutex<Option<[u8; 32]>>>,
+        inner: Arc<dyn crate::verify::ServerCertVerifier>,
+    ) -> Arc<Self> {
+        Arc::new(Self { auth_key_slot, inner })
+    }
+}
+
+#[cfg(feature = "std")]
+impl crate::verify::ServerCertVerifier for RealityServerCertVerifier {
+    fn verify_server_cert(
+        &self,
+        end_entity: &pki_types::CertificateDer<'_>,
+        intermediates: &[pki_types::CertificateDer<'_>],
+        server_name: &pki_types::ServerName<'_>,
+        ocsp_response: &[u8],
+        now: pki_types::UnixTime,
+    ) -> Result<crate::verify::ServerCertVerified, Error> {
+        // Try REALITY cert verification if we have the auth_key
+        let auth_key: Option<[u8; 32]> = self
+            .auth_key_slot
+            .lock()
+            .ok()
+            .and_then(|g| *g);
+
+        if let Some(ref key) = auth_key {
+            if let Some(result) = verify_reality_cert(end_entity, key) {
+                return result;
+            }
+        }
+
+        // Not a REALITY cert — fall back to the inner verifier
+        self.inner
+            .verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now)
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &pki_types::CertificateDer<'_>,
+        dss: &crate::verify::DigitallySignedStruct,
+    ) -> Result<crate::verify::HandshakeSignatureValid, Error> {
+        self.inner.verify_tls12_signature(message, cert, dss)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &pki_types::CertificateDer<'_>,
+        dss: &crate::verify::DigitallySignedStruct,
+    ) -> Result<crate::verify::HandshakeSignatureValid, Error> {
+        // Try the inner verifier first (handles normal TLS destinations)
+        if let Ok(valid) = self.inner.verify_tls13_signature(message, cert, dss) {
+            return Ok(valid);
+        }
+
+        // Inner verifier failed; try direct Ed25519 verification for REALITY certs
+        if dss.scheme == crate::enums::SignatureScheme::ED25519 {
+            if let Some(pubkey) = extract_ed25519_pubkey_from_reality_cert(cert.as_ref()) {
+                #[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
+                if ed25519_verify(&pubkey, message, dss.signature()) {
+                    return Ok(crate::verify::HandshakeSignatureValid::assertion());
+                }
+            }
+        }
+
+        Err(Error::InvalidCertificate(
+            crate::error::CertificateError::BadSignature,
+        ))
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<crate::enums::SignatureScheme> {
+        let mut schemes = self.inner.supported_verify_schemes();
+        if !schemes.contains(&crate::enums::SignatureScheme::ED25519) {
+            schemes.push(crate::enums::SignatureScheme::ED25519);
+        }
+        schemes
+    }
 }
 
 #[cfg(test)]
@@ -592,14 +842,14 @@ mod tests {
 
     #[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
     #[test]
-    fn test_aes_128_gcm_encryption() {
-        // Test AES-128-GCM encryption produces 32-byte output (16 bytes ciphertext + 16 bytes tag)
-        let key = [0u8; 16];
+    fn test_aes_256_gcm_encryption() {
+        // Test AES-256-GCM encryption produces 32-byte output (16 bytes ciphertext + 16 bytes tag)
+        let key = [0u8; 32];
         let nonce = [0u8; 12];
         let aad = b"test aad";
         let plaintext = [0u8; 16];
 
-        let result = aes_128_gcm_encrypt(&key, &nonce, aad, &plaintext);
+        let result = aes_256_gcm_encrypt(&key, &nonce, aad, &plaintext);
         assert!(result.is_ok());
         let ciphertext_with_tag = result.unwrap();
         assert_eq!(ciphertext_with_tag.len(), 32);
