@@ -3173,6 +3173,7 @@ dependencies = [
  "subtle",
  "time",
  "webpki-roots",
+ "x25519-dalek",
  "x509-parser",
  "zeroize",
  "zlib-rs",

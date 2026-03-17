@@ -148,50 +148,32 @@ impl core::fmt::Display for RealityConfigError {
 #[cfg(feature = "std")]
 impl std::error::Error for RealityConfigError {}
 
-/// Generate X25519 keypair using ring
+/// Generate X25519 keypair using x25519-dalek (ring feature)
 #[cfg(all(feature = "ring", not(feature = "aws_lc_rs")))]
 fn x25519_generate_keypair(
     secure_random: &dyn SecureRandom,
 ) -> Result<([u8; 32], [u8; 32]), Error> {
-    use ring::agreement;
+    use x25519_dalek::{PublicKey, StaticSecret};
 
-    // Generate random private key
     let mut private_bytes = [0u8; 32];
     secure_random.fill(&mut private_bytes)?;
 
-    // Compute public key from private key using PrivateKey
-    let private_key = agreement::PrivateKey::from_private_key(&agreement::X25519, &private_bytes)
-        .map_err(|_| Error::General("X25519 private key creation failed".into()))?;
-
-    let public_key_bytes = private_key
-        .compute_public_key()
-        .map_err(|_| Error::General("X25519 public key computation failed".into()))?;
-
-    let mut public = [0u8; 32];
-    public.copy_from_slice(public_key_bytes.as_ref());
+    let secret = StaticSecret::from(private_bytes);
+    let public: [u8; 32] = PublicKey::from(&secret).to_bytes();
 
     Ok((private_bytes, public))
 }
 
-/// Perform X25519 ECDH using ring
+/// Perform X25519 ECDH using x25519-dalek (ring feature)
 #[cfg(all(feature = "ring", not(feature = "aws_lc_rs")))]
 fn x25519_ecdh(private_key: &[u8; 32], peer_public_key: &[u8; 32]) -> Result<[u8; 32], Error> {
-    use ring::agreement;
+    use x25519_dalek::{PublicKey, StaticSecret};
 
-    let private_key = agreement::PrivateKey::from_private_key(&agreement::X25519, private_key)
-        .map_err(|_| Error::General("X25519 private key creation failed".into()))?;
+    let secret = StaticSecret::from(*private_key);
+    let peer_public = PublicKey::from(*peer_public_key);
+    let shared = secret.diffie_hellman(&peer_public);
 
-    let peer_public =
-        agreement::UnparsedPublicKey::new(&agreement::X25519, peer_public_key.as_ref());
-
-    let mut shared_secret = [0u8; 32];
-    agreement::agree(&private_key, &peer_public, |key_material| {
-        shared_secret.copy_from_slice(key_material);
-        Ok(())
-    })
-    .map_err(|_| Error::General("X25519 ECDH failed".into()))?;
-
-    Ok(shared_secret)
+    Ok(shared.to_bytes())
 }
 
 /// Generate X25519 keypair using aws-lc-rs

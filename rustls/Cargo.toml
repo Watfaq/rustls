@@ -27,6 +27,7 @@ log = { workspace = true, optional = true }
 once_cell = { version = "1.16", default-features = false, features = ["alloc", "race"] }
 ring = { workspace = true, optional = true }
 subtle = { workspace = true }
+x25519-dalek = { workspace = true, optional = true }
 webpki = { workspace = true }
 pki-types = { workspace = true }
 zeroize = { workspace = true }
@@ -39,7 +40,7 @@ logging = ["log"]
 aws_lc_rs = ["dep:aws-lc-rs", "webpki/aws_lc_rs"]
 aws-lc-rs = ["aws_lc_rs"] # Alias because Cargo features commonly use `-`
 brotli = ["dep:brotli", "dep:brotli-decompressor", "std"]
-ring = ["dep:ring", "webpki/ring"]
+ring = ["dep:ring", "webpki/ring", "dep:x25519-dalek"]
 custom-provider = []
 tls12 = []
 read_buf = ["rustversion", "std"]
