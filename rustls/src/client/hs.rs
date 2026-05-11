@@ -526,27 +526,31 @@ where
     };
 
     // ref: https://github.com/shadow-tls/rustls/blob/c033c22cdbb6b08adf8b35571ee8427c70512d13/rustls/src/client/hs.rs#L365
-    if let Some(generator) = session_id_generator {
-        let mut buffer = Vec::new();
-        match &mut chp.0 {
-            HandshakePayload::ClientHello(c) => {
-                c.session_id = SessionId {
-                    len: 32,
-                    data: [0; 32],
-                };
+    // Skip session_id_generator when Reality is active — Reality computes its own
+    // cryptographic session_id above, and overwriting it would break the handshake.
+    if reality_state.is_none() {
+        if let Some(generator) = session_id_generator {
+            let mut buffer = Vec::new();
+            match &mut chp.0 {
+                HandshakePayload::ClientHello(c) => {
+                    c.session_id = SessionId {
+                        len: 32,
+                        data: [0; 32],
+                    };
+                }
+                _ => unreachable!(),
             }
-            _ => unreachable!(),
-        }
-        chp.encode(&mut buffer);
-        let session_id = SessionId {
-            len: 32,
-            data: generator(&buffer),
-        };
-        match &mut chp.0 {
-            HandshakePayload::ClientHello(c) => {
-                c.session_id = session_id;
+            chp.encode(&mut buffer);
+            let session_id = SessionId {
+                len: 32,
+                data: generator(&buffer),
+            };
+            match &mut chp.0 {
+                HandshakePayload::ClientHello(c) => {
+                    c.session_id = session_id;
+                }
+                _ => unreachable!(),
             }
-            _ => unreachable!(),
         }
     }
 
