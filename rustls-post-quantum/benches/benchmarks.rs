@@ -1,3 +1,4 @@
+use std::hint::black_box;
 use std::sync::Arc;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};

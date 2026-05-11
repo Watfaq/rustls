@@ -1,5 +1,4 @@
 use alloc::format;
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt;
 use core::marker::PhantomData;
@@ -8,6 +7,7 @@ use crate::client::EchMode;
 use crate::crypto::CryptoProvider;
 use crate::error::Error;
 use crate::msgs::handshake::ALL_KEY_EXCHANGE_ALGORITHMS;
+use crate::sync::Arc;
 use crate::time_provider::TimeProvider;
 use crate::versions;
 #[cfg(doc)]
@@ -183,7 +183,7 @@ impl<Side: ConfigSide, State: fmt::Debug> fmt::Debug for ConfigBuilder<Side, Sta
             .unwrap_or((side_name, ""));
         let (_, name) = ty.rsplit_once("::").unwrap_or(("", ty));
 
-        f.debug_struct(&format!("ConfigBuilder<{}, _>", name,))
+        f.debug_struct(&format!("ConfigBuilder<{name}, _>",))
             .field("state", &self.state)
             .finish()
     }

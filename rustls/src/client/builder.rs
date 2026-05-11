@@ -1,4 +1,3 @@
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 
@@ -6,13 +5,14 @@ use pki_types::{CertificateDer, PrivateKeyDer};
 
 use super::client_conn::Resumption;
 use crate::builder::{ConfigBuilder, WantsVerifier};
-use crate::client::{handy, ClientConfig, EchMode, ResolvesClientCert};
+use crate::client::{ClientConfig, EchMode, ResolvesClientCert, handy};
 use crate::error::Error;
 use crate::key_log::NoKeyLog;
-use crate::msgs::handshake::CertificateChain;
+use crate::sign::{CertifiedKey, SingleCertAndKey};
+use crate::sync::Arc;
 use crate::versions::TLS13;
 use crate::webpki::{self, WebPkiServerVerifier};
-use crate::{compress, verify, versions, WantsVersions};
+use crate::{WantsVersions, compress, verify, versions};
 
 impl ConfigBuilder<ClientConfig, WantsVersions> {
     /// Enable Encrypted Client Hello (ECH) in the given mode.
@@ -90,11 +90,11 @@ impl ConfigBuilder<ClientConfig, WantsVerifier> {
 
 /// Container for unsafe APIs
 pub(super) mod danger {
-    use alloc::sync::Arc;
     use core::marker::PhantomData;
 
     use crate::client::WantsClientCert;
-    use crate::{verify, ClientConfig, ConfigBuilder, WantsVerifier};
+    use crate::sync::Arc;
+    use crate::{ClientConfig, ConfigBuilder, WantsVerifier, verify};
 
     /// Accessor for dangerous configuration options.
     #[derive(Debug)]
@@ -184,13 +184,8 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
         cert_chain: Vec<CertificateDer<'static>>,
         key_der: PrivateKeyDer<'static>,
     ) -> Result<ClientConfig, Error> {
-        let private_key = self
-            .provider
-            .key_provider
-            .load_private_key(key_der)?;
-        let resolver =
-            handy::AlwaysResolvesClientCert::new(private_key, CertificateChain(cert_chain))?;
-        Ok(self.with_client_cert_resolver(Arc::new(resolver)))
+        let certified_key = CertifiedKey::from_der(cert_chain, key_der, &self.provider)?;
+        Ok(self.with_client_cert_resolver(Arc::new(SingleCertAndKey::from(certified_key))))
     }
 
     /// Do not support client auth.
@@ -203,9 +198,13 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
         self,
         client_auth_cert_resolver: Arc<dyn ResolvesClientCert>,
     ) -> ClientConfig {
+        #[cfg(feature = "tls12")]
+        let require_ems = self.provider.fips();
+
         ClientConfig {
             provider: self.provider,
             alpn_protocols: Vec::new(),
+            check_selected_alpn: true,
             resumption: Resumption::default(),
             max_fragment_size: None,
             client_auth_cert_resolver,
@@ -216,7 +215,7 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
             enable_secret_extraction: false,
             enable_early_data: false,
             #[cfg(feature = "tls12")]
-            require_ems: cfg!(feature = "fips"),
+            require_ems,
             time_provider: self.time_provider,
             cert_compressors: compress::default_cert_compressors().to_vec(),
             cert_compression_cache: Arc::new(compress::CompressionCache::default()),

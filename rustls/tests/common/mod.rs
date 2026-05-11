@@ -1,9 +1,7 @@
 #![allow(dead_code)]
-#![allow(clippy::duplicate_mod)]
+#![allow(clippy::disallowed_types, clippy::duplicate_mod)]
 
-use std::io;
-use std::ops::DerefMut;
-use std::sync::{Arc, OnceLock};
+pub use std::sync::Arc;
 
 use pki_types::pem::PemObject;
 use pki_types::{
@@ -704,258 +702,19 @@ pub fn webpki_client_verifier_builder(roots: Arc<RootCertStore>) -> ClientCertVe
     if exactly_one_provider() {
         WebPkiClientVerifier::builder(roots)
     } else {
-        WebPkiClientVerifier::builder_with_provider(roots, provider::default_provider().into())
+        WebPkiClientVerifier::builder_with_provider(roots, provider.clone().into())
     }
 }
 
-pub fn webpki_server_verifier_builder(roots: Arc<RootCertStore>) -> ServerCertVerifierBuilder {
+pub fn webpki_server_verifier_builder(
+    roots: Arc<RootCertStore>,
+    provider: &CryptoProvider,
+) -> ServerCertVerifierBuilder {
     if exactly_one_provider() {
         WebPkiServerVerifier::builder(roots)
     } else {
-        WebPkiServerVerifier::builder_with_provider(roots, provider::default_provider().into())
+        WebPkiServerVerifier::builder_with_provider(roots, provider.clone().into())
     }
-}
-
-pub fn make_pair(kt: KeyType) -> (ClientConnection, ServerConnection) {
-    make_pair_for_configs(make_client_config(kt), make_server_config(kt))
-}
-
-pub fn make_pair_for_configs(
-    client_config: ClientConfig,
-    server_config: ServerConfig,
-) -> (ClientConnection, ServerConnection) {
-    make_pair_for_arc_configs(&Arc::new(client_config), &Arc::new(server_config))
-}
-
-pub fn make_pair_for_arc_configs(
-    client_config: &Arc<ClientConfig>,
-    server_config: &Arc<ServerConfig>,
-) -> (ClientConnection, ServerConnection) {
-    (
-        ClientConnection::new(Arc::clone(client_config), server_name("localhost")).unwrap(),
-        ServerConnection::new(Arc::clone(server_config)).unwrap(),
-    )
-}
-
-pub fn do_handshake(
-    client: &mut impl DerefMut<Target = ConnectionCommon<impl SideData>>,
-    server: &mut impl DerefMut<Target = ConnectionCommon<impl SideData>>,
-) -> (usize, usize) {
-    let (mut to_client, mut to_server) = (0, 0);
-    while server.is_handshaking() || client.is_handshaking() {
-        to_server += transfer(client, server);
-        server.process_new_packets().unwrap();
-        to_client += transfer(server, client);
-        client.process_new_packets().unwrap();
-    }
-    (to_server, to_client)
-}
-
-#[derive(PartialEq, Debug)]
-pub enum ErrorFromPeer {
-    Client(Error),
-    Server(Error),
-}
-
-pub fn do_handshake_until_error(
-    client: &mut ClientConnection,
-    server: &mut ServerConnection,
-) -> Result<(), ErrorFromPeer> {
-    while server.is_handshaking() || client.is_handshaking() {
-        transfer(client, server);
-        server
-            .process_new_packets()
-            .map_err(ErrorFromPeer::Server)?;
-        transfer(server, client);
-        client
-            .process_new_packets()
-            .map_err(ErrorFromPeer::Client)?;
-    }
-
-    Ok(())
-}
-
-pub fn do_handshake_altered(
-    client: ClientConnection,
-    alter_server_message: impl Fn(&mut Message) -> Altered,
-    alter_client_message: impl Fn(&mut Message) -> Altered,
-    server: ServerConnection,
-) -> Result<(), ErrorFromPeer> {
-    let mut client: Connection = Connection::Client(client);
-    let mut server: Connection = Connection::Server(server);
-
-    while server.is_handshaking() || client.is_handshaking() {
-        transfer_altered(&mut client, &alter_client_message, &mut server);
-
-        server
-            .process_new_packets()
-            .map_err(ErrorFromPeer::Server)?;
-
-        transfer_altered(&mut server, &alter_server_message, &mut client);
-
-        client
-            .process_new_packets()
-            .map_err(ErrorFromPeer::Client)?;
-    }
-
-    Ok(())
-}
-
-pub fn do_handshake_until_both_error(
-    client: &mut ClientConnection,
-    server: &mut ServerConnection,
-) -> Result<(), Vec<ErrorFromPeer>> {
-    match do_handshake_until_error(client, server) {
-        Err(server_err @ ErrorFromPeer::Server(_)) => {
-            let mut errors = vec![server_err];
-            transfer(server, client);
-            let client_err = client
-                .process_new_packets()
-                .map_err(ErrorFromPeer::Client)
-                .expect_err("client didn't produce error after server error");
-            errors.push(client_err);
-            Err(errors)
-        }
-
-        Err(client_err @ ErrorFromPeer::Client(_)) => {
-            let mut errors = vec![client_err];
-            transfer(client, server);
-            let server_err = server
-                .process_new_packets()
-                .map_err(ErrorFromPeer::Server)
-                .expect_err("server didn't produce error after client error");
-            errors.push(server_err);
-            Err(errors)
-        }
-
-        Ok(()) => Ok(()),
-    }
-}
-
-pub fn server_name(name: &'static str) -> ServerName<'static> {
-    name.try_into().unwrap()
-}
-
-pub struct FailsReads {
-    errkind: io::ErrorKind,
-}
-
-impl FailsReads {
-    pub fn new(errkind: io::ErrorKind) -> Self {
-        Self { errkind }
-    }
-}
-
-impl io::Read for FailsReads {
-    fn read(&mut self, _b: &mut [u8]) -> io::Result<usize> {
-        Err(io::Error::from(self.errkind))
-    }
-}
-
-pub fn do_suite_and_kx_test(
-    client_config: ClientConfig,
-    server_config: ServerConfig,
-    expect_suite: SupportedCipherSuite,
-    expect_kx: NamedGroup,
-    expect_version: ProtocolVersion,
-) {
-    println!(
-        "do_suite_test {:?} {:?}",
-        expect_version,
-        expect_suite.suite()
-    );
-    let (mut client, mut server) = make_pair_for_configs(client_config, server_config);
-
-    assert_eq!(None, client.negotiated_cipher_suite());
-    assert_eq!(None, server.negotiated_cipher_suite());
-    assert!(client
-        .negotiated_key_exchange_group()
-        .is_none());
-    assert!(server
-        .negotiated_key_exchange_group()
-        .is_none());
-    assert_eq!(None, client.protocol_version());
-    assert_eq!(None, server.protocol_version());
-    assert!(client.is_handshaking());
-    assert!(server.is_handshaking());
-
-    transfer(&mut client, &mut server);
-    server.process_new_packets().unwrap();
-
-    assert!(client.is_handshaking());
-    assert!(server.is_handshaking());
-    assert_eq!(None, client.protocol_version());
-    assert_eq!(Some(expect_version), server.protocol_version());
-    assert_eq!(None, client.negotiated_cipher_suite());
-    assert_eq!(Some(expect_suite), server.negotiated_cipher_suite());
-    assert!(client
-        .negotiated_key_exchange_group()
-        .is_none());
-    if matches!(expect_version, ProtocolVersion::TLSv1_2) {
-        assert!(server
-            .negotiated_key_exchange_group()
-            .is_none());
-    } else {
-        assert_eq!(
-            expect_kx,
-            server
-                .negotiated_key_exchange_group()
-                .unwrap()
-                .name()
-        );
-    }
-
-    transfer(&mut server, &mut client);
-    client.process_new_packets().unwrap();
-
-    assert_eq!(Some(expect_suite), client.negotiated_cipher_suite());
-    assert_eq!(Some(expect_suite), server.negotiated_cipher_suite());
-    assert_eq!(
-        expect_kx,
-        client
-            .negotiated_key_exchange_group()
-            .unwrap()
-            .name()
-    );
-    if matches!(expect_version, ProtocolVersion::TLSv1_2) {
-        assert!(server
-            .negotiated_key_exchange_group()
-            .is_none());
-    } else {
-        assert_eq!(
-            expect_kx,
-            server
-                .negotiated_key_exchange_group()
-                .unwrap()
-                .name()
-        );
-    }
-
-    transfer(&mut client, &mut server);
-    server.process_new_packets().unwrap();
-    transfer(&mut server, &mut client);
-    client.process_new_packets().unwrap();
-
-    assert!(!client.is_handshaking());
-    assert!(!server.is_handshaking());
-    assert_eq!(Some(expect_version), client.protocol_version());
-    assert_eq!(Some(expect_version), server.protocol_version());
-    assert_eq!(Some(expect_suite), client.negotiated_cipher_suite());
-    assert_eq!(Some(expect_suite), server.negotiated_cipher_suite());
-    assert_eq!(
-        expect_kx,
-        client
-            .negotiated_key_exchange_group()
-            .unwrap()
-            .name()
-    );
-    assert_eq!(
-        expect_kx,
-        server
-            .negotiated_key_exchange_group()
-            .unwrap()
-            .name()
-    );
 }
 
 fn exactly_one_provider() -> bool {

@@ -1,5 +1,4 @@
 use alloc::boxed::Box;
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt;
 use core::fmt::{Debug, Formatter};
@@ -15,6 +14,7 @@ use crate::log::debug;
 use crate::polyfill::try_split_at;
 use crate::rand::GetRandomFailed;
 use crate::server::ProducesTickets;
+use crate::sync::Arc;
 
 /// A concrete, safe ticket creation mechanism.
 pub struct Ticketer {}
@@ -29,21 +29,6 @@ impl Ticketer {
         Ok(Arc::new(crate::ticketer::TicketRotator::new(
             6 * 60 * 60,
             make_ticket_generator,
-        )?))
-    }
-
-    /// Make the recommended `Ticketer`.  This produces tickets
-    /// with a 12 hour life and randomly generated keys.
-    ///
-    /// The encryption mechanism used is Chacha20Poly1305.
-    #[cfg(not(feature = "std"))]
-    pub fn new<M: crate::lock::MakeMutex>(
-        time_provider: &'static dyn TimeProvider,
-    ) -> Result<Arc<dyn ProducesTickets>, Error> {
-        Ok(Arc::new(crate::ticketer::TicketSwitcher::new::<M>(
-            6 * 60 * 60,
-            make_ticket_generator,
-            time_provider,
         )?))
     }
 }
@@ -370,7 +355,7 @@ mod tests {
         let t = make_ticket_generator().unwrap();
 
         let expect = format!("AeadTicketer {{ alg: {TICKETER_AEAD:?}, lifetime: 43200 }}");
-        assert_eq!(format!("{:?}", t), expect);
+        assert_eq!(format!("{t:?}"), expect);
         assert!(t.enabled());
         assert_eq!(t.lifetime(), 43200);
     }

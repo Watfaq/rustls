@@ -7,7 +7,7 @@ description = "Rustls connectivity based integration tests."
 publish = false
 
 [dependencies]
-watfaq-rustls = { path = "../rustls", features = [ "logging" ]}
+rustls = { package = "watfaq-rustls", path = "../rustls", features = ["logging"] }
 
 [dev-dependencies]
 hickory-resolver = { workspace = true }

@@ -70,4 +70,3 @@ let my_provider = CryptoProvider {
 This crate is release under the same licenses as the [main rustls crate][rustls].
 
 [rustls]: https://crates.io/crates/rustls
-[`rustls::crypto::CryptoProvider`]: https://docs.rs/rustls/latest/rustls/crypto/struct.CryptoProvider.html

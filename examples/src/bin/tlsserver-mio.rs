@@ -28,11 +28,11 @@ use std::{fs, net};
 use clap::{Parser, Subcommand};
 use log::{debug, error};
 use mio::net::{TcpListener, TcpStream};
-use watfaq_rustls::crypto::{aws_lc_rs as provider, CryptoProvider};
-use watfaq_rustls::pki_types::pem::PemObject;
-use watfaq_rustls::pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer};
-use watfaq_rustls::server::WebPkiClientVerifier;
-use watfaq_rustls::RootCertStore;
+use rustls::RootCertStore;
+use rustls::crypto::{CryptoProvider, aws_lc_rs as provider};
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer};
+use rustls::server::WebPkiClientVerifier;
 
 // Token for our listening socket.
 const LISTENER: mio::Token = mio::Token(0);
@@ -76,10 +76,9 @@ impl TlsServer {
         loop {
             match self.server.accept() {
                 Ok((socket, addr)) => {
-                    debug!("Accepting new connection from {:?}", addr);
+                    debug!("Accepting new connection from {addr:?}");
 
-                    let tls_conn =
-                        watfaq_rustls::ServerConnection::new(Arc::clone(&self.tls_config)).unwrap();
+                    let tls_conn = rustls::ServerConnection::new(self.tls_config.clone()).unwrap();
                     let mode = self.mode.clone();
 
                     let token = mio::Token(self.next_id);
@@ -90,12 +89,9 @@ impl TlsServer {
                     self.connections
                         .insert(token, connection);
                 }
-                Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock => return Ok(()),
                 Err(err) => {
-                    println!(
-                        "encountered error while accepting connection; err={:?}",
-                        err
-                    );
+                    println!("encountered error while accepting connection; err={err:?}");
                     return Err(err);
                 }
             }
@@ -224,7 +220,7 @@ impl OpenConnection {
                     return;
                 }
 
-                error!("read error {:?}", err);
+                error!("read error {err:?}");
                 self.closing = true;
                 return;
             }
@@ -238,7 +234,7 @@ impl OpenConnection {
 
         // Process newly-received TLS messages.
         if let Err(err) = self.tls_conn.process_new_packets() {
-            error!("cannot process packet: {:?}", err);
+            error!("cannot process packet: {err:?}");
 
             // last gasp write to send any alerts
             self.do_tls_write_and_handle_error();
@@ -288,7 +284,7 @@ impl OpenConnection {
         let rc = try_read(back.read(&mut buf));
 
         if rc.is_err() {
-            error!("backend read failed: {:?}", rc);
+            error!("backend read failed: {rc:?}");
             self.closing = true;
             return;
         }
@@ -355,7 +351,7 @@ impl OpenConnection {
     fn do_tls_write_and_handle_error(&mut self) {
         let rc = self.tls_write();
         if rc.is_err() {
-            error!("write failed {:?}", rc);
+            error!("write failed {rc:?}");
             self.closing = true;
         }
     }
@@ -366,13 +362,9 @@ impl OpenConnection {
             .register(&mut self.socket, self.token, event_set)
             .unwrap();
 
-        if self.back.is_some() {
+        if let Some(back) = &mut self.back {
             registry
-                .register(
-                    self.back.as_mut().unwrap(),
-                    self.token,
-                    mio::Interest::READABLE,
-                )
+                .register(back, self.token, mio::Interest::READABLE)
                 .unwrap();
         }
     }
@@ -494,7 +486,7 @@ fn lookup_suites(suites: &[String]) -> Vec<watfaq_rustls::SupportedCipherSuite> 
         let scs = find_suite(csname);
         match scs {
             Some(s) => out.push(s),
-            None => panic!("cannot look up ciphersuite '{}'", csname),
+            None => panic!("cannot look up ciphersuite '{csname}'"),
         }
     }
 
@@ -507,12 +499,9 @@ fn lookup_versions(versions: &[String]) -> Vec<&'static watfaq_rustls::Supported
 
     for vname in versions {
         let version = match vname.as_ref() {
-            "1.2" => &watfaq_rustls::version::TLS12,
-            "1.3" => &watfaq_rustls::version::TLS13,
-            _ => panic!(
-                "cannot look up version '{}', valid are '1.2' and '1.3'",
-                vname
-            ),
+            "1.2" => &rustls::version::TLS12,
+            "1.3" => &rustls::version::TLS13,
+            _ => panic!("cannot look up version '{vname}', valid are '1.2' and '1.3'"),
         };
         out.push(version);
     }
@@ -669,7 +658,7 @@ fn main() {
             // Polling can be interrupted (e.g. by a debugger) - retry if so.
             Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
             Err(e) => {
-                panic!("poll failed: {:?}", e)
+                panic!("poll failed: {e:?}")
             }
         }
 

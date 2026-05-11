@@ -1,14 +1,13 @@
 use der::Reader;
 use rsa::signature::Verifier;
-use rsa::{pkcs1v15, pss, BigUint, RsaPublicKey};
-use watfaq_rustls::crypto::WebPkiSupportedAlgorithms;
-use watfaq_rustls::pki_types::{
-    AlgorithmIdentifier, InvalidSignature, SignatureVerificationAlgorithm,
+use rsa::{BigUint, RsaPublicKey, pkcs1v15, pss};
+use rustls::SignatureScheme;
+use rustls::crypto::WebPkiSupportedAlgorithms;
+use rustls::pki_types::{
+    AlgorithmIdentifier, InvalidSignature, SignatureVerificationAlgorithm, alg_id,
 };
-use watfaq_rustls::SignatureScheme;
-use webpki::alg_id;
 
-pub static ALGORITHMS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgorithms {
+pub(crate) static ALGORITHMS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgorithms {
     all: &[RSA_PSS_SHA256, RSA_PKCS1_SHA256],
     mapping: &[
         (SignatureScheme::RSA_PSS_SHA256, &[RSA_PSS_SHA256]),
@@ -79,7 +78,7 @@ fn decode_spki_spk(spki_spk: &[u8]) -> Result<RsaPublicKey, InvalidSignature> {
     // public_key: unfortunately this is not a whole SPKI, but just the key material.
     // decode the two integers manually.
     let mut reader = der::SliceReader::new(spki_spk).map_err(|_| InvalidSignature)?;
-    let ne: [der::asn1::UintRef; 2] = reader
+    let ne: [der::asn1::UintRef<'_>; 2] = reader
         .decode()
         .map_err(|_| InvalidSignature)?;
 

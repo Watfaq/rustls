@@ -11,10 +11,12 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 byteorder = { workspace = true }
 clap = { workspace = true }
-fxhash = { workspace = true }
 itertools = { workspace = true }
 rayon = { workspace = true }
 watfaq-rustls = { path = "../rustls", features = ["ring", "aws_lc_rs"] }
+rustc-hash = { workspace = true }
+rustls-test = { workspace = true }
+rustls-fuzzing-provider = { workspace = true }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { workspace = true }

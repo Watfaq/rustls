@@ -46,7 +46,7 @@ jobs:
 
       - name: Install ninja-build tool for aws-lc-fips-sys on Windows
         if: runner.os == 'Windows'
-        uses: seanmiddleditch/gha-setup-ninja@v5
+        uses: seanmiddleditch/gha-setup-ninja@v6
 
       - name: Build example programs
         run: cargo build --locked -p rustls-examples
@@ -90,7 +90,7 @@ jobs:
 
       - name: Install ninja-build tool for aws-lc-fips-sys on Windows
         if: runner.os == 'Windows'
-        uses: seanmiddleditch/gha-setup-ninja@v5
+        uses: seanmiddleditch/gha-setup-ninja@v6
 
       - name: Check simple client
         run: cargo run --locked -p rustls-examples --bin simpleclient
@@ -106,9 +106,6 @@ jobs:
 
       - name: Check unbuffered tokio client
         run: cargo run --locked -p rustls-examples --bin unbuffered-async-client
-
-      - name: Check unbuffered async-std client
-        run: cargo run --locked -p rustls-examples --bin unbuffered-async-client --features=async-std
 
       # Test the server_acceptor binary builds - we invoke with --help since it
       # will run a server process that doesn't exit when invoked with no args
@@ -131,6 +128,8 @@ jobs:
       - name: Check rustls-post-quantum client
         run: cargo run --locked -p rustls-post-quantum --example client | grep 'kex=X25519MLKEM768'
 
+      - name: Smoke test for secp256r1mlkem768 interop
+        run: cargo run --locked -p rustls-examples --bin tlsclient-mio -- --http --key-exchange secp256r1mlkem768 --verbose openquantumsafe.org
 
   feature-powerset:
     name: Feature Powerset

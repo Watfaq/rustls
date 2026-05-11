@@ -25,21 +25,21 @@
 
 use std::env;
 use std::io::Write;
-use std::sync::Arc;
 
 use super::*;
 
 mod common;
 use common::{
-    do_handshake, make_client_config_with_versions, make_pair_for_arc_configs, make_server_config,
-    transfer, KeyType,
+    Arc, KeyType, do_handshake, make_client_config_with_versions, make_pair_for_arc_configs,
+    make_server_config, transfer,
 };
 
 #[test]
 fn exercise_key_log_file_for_client() {
     serialized(|| {
-        let server_config = Arc::new(make_server_config(KeyType::Rsa2048));
-        env::set_var("SSLKEYLOGFILE", "./sslkeylogfile.txt");
+        let provider = provider::default_provider();
+        let server_config = Arc::new(make_server_config(KeyType::Rsa2048, &provider));
+        unsafe { env::set_var("SSLKEYLOGFILE", "./sslkeylogfile.txt") };
 
         for version in watfaq_rustls::ALL_VERSIONS {
             let mut client_config = make_client_config_with_versions(KeyType::Rsa2048, &[version]);
@@ -60,7 +60,8 @@ fn exercise_key_log_file_for_client() {
 #[test]
 fn exercise_key_log_file_for_server() {
     serialized(|| {
-        let mut server_config = make_server_config(KeyType::Rsa2048);
+        let provider = provider::default_provider();
+        let mut server_config = make_server_config(KeyType::Rsa2048, &provider);
 
         env::set_var("SSLKEYLOGFILE", "./sslkeylogfile.txt");
         server_config.key_log = Arc::new(watfaq_rustls::KeyLogFile::new());

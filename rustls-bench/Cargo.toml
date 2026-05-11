@@ -2,11 +2,13 @@
 name = "rustls-bench"
 version = "0.1.0"
 edition = "2021"
+publish = false
 
 [dependencies]
 clap = { workspace = true }
 watfaq-rustls = { path = "../rustls" }
 rustls-post-quantum = { path = "../rustls-post-quantum", optional = true }
+rustls-test = { workspace = true }
 
 [features]
 default = []

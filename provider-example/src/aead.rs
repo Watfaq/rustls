@@ -2,15 +2,15 @@ use alloc::boxed::Box;
 
 use chacha20poly1305::aead::Buffer;
 use chacha20poly1305::{AeadInPlace, KeyInit, KeySizeUser};
-use watfaq_rustls::crypto::cipher::{
-    make_tls12_aad, make_tls13_aad, AeadKey, BorrowedPayload, InboundOpaqueMessage,
-    InboundPlainMessage, Iv, KeyBlockShape, MessageDecrypter, MessageEncrypter, Nonce,
-    OutboundOpaqueMessage, OutboundPlainMessage, PrefixedPayload, Tls12AeadAlgorithm,
-    Tls13AeadAlgorithm, UnsupportedOperationError, NONCE_LEN,
+use rustls::crypto::cipher::{
+    AeadKey, BorrowedPayload, InboundOpaqueMessage, InboundPlainMessage, Iv, KeyBlockShape,
+    MessageDecrypter, MessageEncrypter, NONCE_LEN, Nonce, OutboundOpaqueMessage,
+    OutboundPlainMessage, PrefixedPayload, Tls12AeadAlgorithm, Tls13AeadAlgorithm,
+    UnsupportedOperationError, make_tls12_aad, make_tls13_aad,
 };
 use watfaq_rustls::{ConnectionTrafficSecrets, ContentType, ProtocolVersion};
 
-pub struct Chacha20Poly1305;
+pub(crate) struct Chacha20Poly1305;
 
 impl Tls13AeadAlgorithm for Chacha20Poly1305 {
     fn encrypter(&self, key: AeadKey, iv: Iv) -> Box<dyn MessageEncrypter> {
@@ -83,7 +83,7 @@ struct Tls13Cipher(chacha20poly1305::ChaCha20Poly1305, Iv);
 impl MessageEncrypter for Tls13Cipher {
     fn encrypt(
         &mut self,
-        m: OutboundPlainMessage,
+        m: OutboundPlainMessage<'_>,
         seq: u64,
     ) -> Result<OutboundOpaqueMessage, watfaq_rustls::Error> {
         let total_len = self.encrypted_payload_len(m.payload.len());
@@ -134,7 +134,7 @@ struct Tls12Cipher(chacha20poly1305::ChaCha20Poly1305, Iv);
 impl MessageEncrypter for Tls12Cipher {
     fn encrypt(
         &mut self,
-        m: OutboundPlainMessage,
+        m: OutboundPlainMessage<'_>,
         seq: u64,
     ) -> Result<OutboundOpaqueMessage, watfaq_rustls::Error> {
         let total_len = self.encrypted_payload_len(m.payload.len());

@@ -5,14 +5,14 @@ permissions:
 
 on:
   push:
-    branches-ignore:
-    - 'gh-readonly-queue/**'
+    branches: ['main', 'rel-*', 'ci/*']
     tags:
     - '**'
   pull_request:
   merge_group:
   schedule:
     - cron: '0 18 * * *'
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
@@ -62,13 +62,13 @@ jobs:
 
       - name: Install ninja-build tool for aws-lc-fips-sys on Windows
         if: runner.os == 'Windows'
-        uses: seanmiddleditch/gha-setup-ninja@v5
+        uses: seanmiddleditch/gha-setup-ninja@v6
 
       - name: Install golang for aws-lc-fips-sys on macos
         if: runner.os == 'MacOS'
         uses: actions/setup-go@v5
         with:
-          go-version: "1.22.2"
+          go-version: "1.24.3"
 
       - name: cargo build (debug; default features)
         run: cargo build --locked
@@ -97,6 +97,9 @@ jobs:
         run: cargo test --release --no-default-features --features fips,tls12,read_buf,logging,std --all-targets
         env:
           RUST_BACKTRACE: 1
+
+      - name: cargo build (debug; no-std)
+        run: cargo build --locked --lib -p rustls $(admin/all-features-except std,brotli,read_buf rustls)
 
       - name: cargo build (debug; rustls-provider-example)
         run: cargo build --locked -p rustls-provider-example
@@ -207,7 +210,7 @@ jobs:
       - name: Install golang toolchain
         uses: actions/setup-go@v5
         with:
-          go-version: "1.21"
+          go-version: "1.24"
           cache: false
 
       - name: Run test suite (ring)
@@ -247,7 +250,9 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
 
       - name: Install cargo fuzz
-        run: cargo install cargo-fuzz
+        uses: taiki-e/cache-cargo-install-action@v3
+        with:
+          tool: cargo-fuzz
 
       - name: Smoke-test fuzz targets
         run: |
@@ -316,12 +321,14 @@ jobs:
           persist-credentials: false
 
       - name: Install rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@nightly
         with:
           components: llvm-tools
 
       - name: Install cargo-llvm-cov
-        run: cargo install cargo-llvm-cov
+        uses: taiki-e/cache-cargo-install-action@v3
+        with:
+          tool: cargo-llvm-cov
 
       - name: Measure coverage
         run: ./admin/coverage --lcov --output-path final.info
@@ -385,11 +392,20 @@ jobs:
 
       - name: Install rust toolchain
         uses: dtolnay/rust-toolchain@stable
-      - name: Install cross (cross-rs) from GitHub
-        run: cargo install cross --git https://github.com/cross-rs/cross
-      - name: Install bindgen feature & CLI for aws-lc-sys (as needed for many cross targets)
+      - name: Install cross
+        uses: taiki-e/cache-cargo-install-action@v3
+        with:
+          tool: cross
+          git: https://github.com/cross-rs/cross
+          # known-working main in feb 2025, bump as needed
+          rev: c7dee4d
+      - name: Install bindgen-cli
+        uses: taiki-e/cache-cargo-install-action@v3
+        with:
+          tool: bindgen-cli
+      - name: Enable bindgen feature for aws-lc-sys (as needed for many cross targets)
         if: ${{ matrix.target != 'i686-unknown-linux-gnu' }}
-        run: cargo add --dev --features bindgen 'aws-lc-sys@>0.20' --package rustls --verbose && cargo install bindgen-cli --verbose
+        run: cargo add --dev --features bindgen 'aws-lc-sys@>0.20' --package rustls --verbose
       - run: cross test --package rustls --target ${{ matrix.target }}
 
   semver:
@@ -432,10 +448,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Install rust nightly toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
-          toolchain: nightly-2024-02-21
       - name: Check formatting (unstable)
         run: cargo fmt --all -- --check --config-path .rustfmt.unstable.toml
         continue-on-error: true
@@ -463,10 +478,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      # - we want to be free of any warnings, so deny them
-      # - disable incompatible_msrv as it does not understand that we apply our
-      #   MSRV to the just the core crate.
-      - run: ./admin/clippy -- --deny warnings --allow clippy::incompatible_msrv
+      - run: ./admin/clippy -- --deny warnings
 
   clippy-nightly:
     name: Clippy (Nightly)
@@ -485,7 +497,7 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
         with:
           components: clippy
-      # do not deny warnings, as nightly clippy sometimes has false negatives
+      # Do not deny warnings, as nightly clippy sometimes has false negatives.
       - run: ./admin/clippy
 
   check-external-types:
@@ -499,12 +511,32 @@ jobs:
       - name: Install rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly-2024-06-30
+          toolchain: nightly-2025-10-18
           # ^ sync with https://github.com/awslabs/cargo-check-external-types/blob/main/rust-toolchain.toml
-      - run: cargo install --locked cargo-check-external-types
+      - name: Install cargo-check-external-types
+        uses: taiki-e/cache-cargo-install-action@v3
+        with:
+          tool: cargo-check-external-types
       - name: run cargo-check-external-types for rustls/
         working-directory: rustls/
         run: cargo check-external-types
+
+  taplo:
+    name: Taplo
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install taplo-cli
+        uses: taiki-e/cache-cargo-install-action@v3
+        with:
+          tool: taplo-cli
+      - run: taplo format --check
 
   openssl-tests:
     name: Run openssl-tests
@@ -521,7 +553,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache ${{ env.VERSION }}
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         id: cache-openssl
         with:
           path: ${{ env.VERSION }}
@@ -551,3 +583,9 @@ jobs:
         run: cargo test --locked -- --include-ignored
         env:
           RUST_BACKTRACE: 1
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: EmbarkStudios/cargo-deny-action@v2

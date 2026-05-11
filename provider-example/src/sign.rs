@@ -9,7 +9,7 @@ use watfaq_rustls::sign::{Signer, SigningKey};
 use watfaq_rustls::{SignatureAlgorithm, SignatureScheme};
 
 #[derive(Clone, Debug)]
-pub struct EcdsaSigningKeyP256 {
+pub(crate) struct EcdsaSigningKeyP256 {
     key: Arc<p256::ecdsa::SigningKey>,
     scheme: SignatureScheme,
 }

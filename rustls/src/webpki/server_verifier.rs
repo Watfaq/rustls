@@ -1,4 +1,3 @@
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use pki_types::{CertificateDer, CertificateRevocationListDer, ServerName, UnixTime};
@@ -6,16 +5,17 @@ use webpki::{CertRevocationList, ExpirationPolicy, RevocationCheckDepth, Unknown
 
 use crate::crypto::{CryptoProvider, WebPkiSupportedAlgorithms};
 use crate::log::trace;
+use crate::sync::Arc;
 use crate::verify::{
     DigitallySignedStruct, HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
 };
 use crate::webpki::verify::{
-    verify_server_cert_signed_by_trust_anchor_impl, verify_tls12_signature, verify_tls13_signature,
-    ParsedCertificate,
+    ParsedCertificate, verify_server_cert_signed_by_trust_anchor_impl, verify_tls12_signature,
+    verify_tls13_signature,
 };
-use crate::webpki::{parse_crls, verify_server_name, VerifierBuilderError};
+use crate::webpki::{VerifierBuilderError, parse_crls, verify_server_name};
 #[cfg(doc)]
-use crate::{crypto, ConfigBuilder, ServerConfig};
+use crate::{ConfigBuilder, ServerConfig, crypto};
 use crate::{Error, RootCertStore, SignatureScheme};
 
 /// A builder for configuring a `webpki` server certificate verifier.
@@ -153,7 +153,7 @@ impl WebPkiServerVerifier {
     pub fn builder(roots: Arc<RootCertStore>) -> ServerCertVerifierBuilder {
         Self::builder_with_provider(
             roots,
-            Arc::clone(CryptoProvider::get_default_or_install_from_crate_features()),
+            CryptoProvider::get_default_or_install_from_crate_features().clone(),
         )
     }
 
@@ -304,14 +304,14 @@ impl ServerCertVerifier for WebPkiServerVerifier {
 #[macro_rules_attribute::apply(test_for_each_provider)]
 mod tests {
     use std::prelude::v1::*;
-    use std::sync::Arc;
     use std::{println, vec};
 
     use pki_types::pem::PemObject;
     use pki_types::{CertificateDer, CertificateRevocationListDer};
 
-    use super::{provider, VerifierBuilderError, WebPkiServerVerifier};
+    use super::{VerifierBuilderError, WebPkiServerVerifier, provider};
     use crate::RootCertStore;
+    use crate::sync::Arc;
 
     fn load_crls(crls_der: &[&[u8]]) -> Vec<CertificateRevocationListDer<'static>> {
         crls_der
@@ -375,7 +375,7 @@ mod tests {
         // There should be the expected number of crls.
         assert_eq!(builder.crls.len(), initial_crls.len() + extra_crls.len());
         // The builder should be Debug.
-        println!("{:?}", builder);
+        println!("{builder:?}");
         builder.build().unwrap();
     }
 
@@ -399,7 +399,7 @@ mod tests {
         )
         .only_check_end_entity_revocation();
         // The builder should be Debug.
-        println!("{:?}", builder);
+        println!("{builder:?}");
         builder.build().unwrap();
     }
 
@@ -413,7 +413,7 @@ mod tests {
         )
         .allow_unknown_revocation_status();
         // The builder should be Debug.
-        println!("{:?}", builder);
+        println!("{builder:?}");
         builder.build().unwrap();
     }
 
@@ -428,7 +428,7 @@ mod tests {
         .allow_unknown_revocation_status()
         .only_check_end_entity_revocation();
         // The builder should be Debug.
-        println!("{:?}", builder);
+        println!("{builder:?}");
         builder.build().unwrap();
     }
 
@@ -442,7 +442,7 @@ mod tests {
         )
         .enforce_revocation_expiration();
         // The builder should be Debug.
-        println!("{:?}", builder);
+        println!("{builder:?}");
         builder.build().unwrap();
     }
 }

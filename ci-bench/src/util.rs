@@ -33,14 +33,15 @@ pub mod async_io {
     //! Async IO building blocks required for sharing code between the instruction count and
     //! wall-time benchmarks
 
-    use std::cell::{Cell, RefCell};
+    use core::cell::{Cell, RefCell};
+    use core::future::Future;
+    use core::pin::{Pin, pin};
+    use core::task::{Poll, RawWaker, RawWakerVTable, Waker};
+    use core::{ptr, task};
     use std::collections::VecDeque;
     use std::fs::File;
-    use std::future::Future;
-    use std::pin::{pin, Pin};
+    use std::io;
     use std::rc::Rc;
-    use std::task::{Poll, RawWaker, RawWakerVTable, Waker};
-    use std::{io, ptr, task};
 
     use async_trait::async_trait;
 
@@ -52,7 +53,7 @@ pub mod async_io {
     /// Useful when counting CPU instructions, because the server and the client side of the
     /// connection run in two separate processes and communicate through stdio using blocking
     /// operations.
-    pub fn block_on_single_poll(
+    pub(crate) fn block_on_single_poll(
         future: impl Future<Output = anyhow::Result<()>>,
     ) -> anyhow::Result<()> {
         // We don't need a waker, because the future will complete in one go
@@ -75,7 +76,7 @@ pub mod async_io {
     ///
     /// Using this together with blocking futures can lead to deadlocks (i.e. when one of the
     /// futures is blocked while it waits on a message from the other).
-    pub fn block_on_concurrent(
+    pub(crate) fn block_on_concurrent(
         x: impl Future<Output = anyhow::Result<()>>,
         y: impl Future<Output = anyhow::Result<()>>,
     ) -> (anyhow::Result<()>, anyhow::Result<()>) {
@@ -131,14 +132,14 @@ pub mod async_io {
 
     /// Read bytes asynchronously
     #[async_trait(?Send)]
-    pub trait AsyncRead {
+    pub(crate) trait AsyncRead {
         async fn read(&mut self, buf: &mut [u8]) -> io::Result<usize>;
         async fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()>;
     }
 
     /// Write bytes asynchronously
     #[async_trait(?Send)]
-    pub trait AsyncWrite {
+    pub(crate) trait AsyncWrite {
         async fn write_all(&mut self, buf: &[u8]) -> io::Result<()>;
         async fn flush(&mut self) -> io::Result<()>;
     }
@@ -169,14 +170,14 @@ pub mod async_io {
 
     /// Creates an unidirectional byte pipe of the given capacity, suitable for async reading and
     /// writing
-    pub fn async_pipe(capacity: usize) -> (AsyncSender, AsyncReceiver) {
+    pub(crate) fn async_pipe(capacity: usize) -> (AsyncSender, AsyncReceiver) {
         let open = Rc::new(Cell::new(true));
         let buf = Rc::new(RefCell::new(VecDeque::with_capacity(capacity)));
         (
             AsyncSender {
                 inner: AsyncPipeSide {
-                    open: open.clone(),
-                    buf: buf.clone(),
+                    open: Rc::clone(&open),
+                    buf: Rc::clone(&buf),
                 },
             },
             AsyncReceiver {
@@ -186,12 +187,12 @@ pub mod async_io {
     }
 
     /// The sender end of an asynchronous byte pipe
-    pub struct AsyncSender {
+    pub(crate) struct AsyncSender {
         inner: AsyncPipeSide,
     }
 
     /// The receiver end of an asynchronous byte pipe
-    pub struct AsyncReceiver {
+    pub(crate) struct AsyncReceiver {
         inner: AsyncPipeSide,
     }
 
@@ -380,7 +381,7 @@ pub mod async_io {
     }
 }
 
-pub mod transport {
+pub(crate) mod transport {
     //! Custom functions to interact between rustls clients and a servers.
     //!
     //! The goal of these functions is to ensure messages are exchanged in chunks of a fixed size, to make
@@ -408,7 +409,7 @@ pub mod transport {
     /// length, followed by the message itself.
     ///
     /// The receiving end should use [`read_handshake_message`] to process the transmission.
-    pub async fn send_handshake_message<T: SideData>(
+    pub(crate) async fn send_handshake_message<T: SideData>(
         conn: &mut ConnectionCommon<T>,
         writer: &mut dyn AsyncWrite,
         buf: &mut [u8],
@@ -446,7 +447,7 @@ pub mod transport {
     ///
     /// Used in combination with [`send_handshake_message`] (see that function's documentation for
     /// more details).
-    pub async fn read_handshake_message<T: SideData>(
+    pub(crate) async fn read_handshake_message<T: SideData>(
         conn: &mut ConnectionCommon<T>,
         reader: &mut dyn AsyncRead,
         buf: &mut [u8],
@@ -482,7 +483,7 @@ pub mod transport {
     /// Reads plaintext until the reader reaches EOF, using a bounded amount of memory.
     ///
     /// Returns the amount of plaintext bytes received.
-    pub async fn read_plaintext_to_end_bounded(
+    pub(crate) async fn read_plaintext_to_end_bounded(
         client: &mut ClientConnection,
         reader: &mut dyn AsyncRead,
     ) -> anyhow::Result<usize> {
@@ -534,7 +535,7 @@ pub mod transport {
     }
 
     /// Writes a plaintext of size `plaintext_size`, using a bounded amount of memory
-    pub async fn write_all_plaintext_bounded(
+    pub(crate) async fn write_all_plaintext_bounded(
         server: &mut ServerConnection,
         writer: &mut dyn AsyncWrite,
         plaintext_size: usize,

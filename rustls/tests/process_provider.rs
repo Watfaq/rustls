@@ -4,6 +4,8 @@
 //! executable, and runs tests in an indeterminate order.  That restricts us
 //! to doing all the desired tests, in series, in one function.
 
+use rustls::ClientConfig;
+use rustls::crypto::CryptoProvider;
 #[cfg(all(feature = "aws_lc_rs", not(feature = "ring")))]
 use watfaq_rustls::crypto::aws_lc_rs as provider;
 #[cfg(all(feature = "ring", not(feature = "aws_lc_rs")))]

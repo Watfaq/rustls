@@ -4,7 +4,7 @@ use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use watfaq_rustls::crypto;
 
-pub struct Sha256Hmac;
+pub(crate) struct Sha256Hmac;
 
 impl crypto::hmac::Hmac for Sha256Hmac {
     fn with_key(&self, key: &[u8]) -> Box<dyn crypto::hmac::Key> {

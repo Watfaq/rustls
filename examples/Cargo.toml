@@ -7,15 +7,13 @@ description = "Rustls example code and tests."
 publish = false
 
 [dependencies]
-async-std = { workspace = true, optional = true }
-base64 = { workspace = true }
 clap = { workspace = true }
 env_logger = { workspace = true }
 hickory-resolver = { workspace = true }
 log = { workspace = true }
 mio = { workspace = true }
 rcgen = { workspace = true }
-watfaq-rustls = { path = "../rustls", features = [ "logging" ] }
+rustls = { package = "watfaq-rustls", path = "../rustls", features = ["logging"] }
 serde = { workspace = true }
 tokio = { workspace = true }
 webpki-roots = { workspace = true }

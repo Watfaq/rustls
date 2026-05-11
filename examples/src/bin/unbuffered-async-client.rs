@@ -1,17 +1,18 @@
 //! This is a simple client using rustls' unbuffered API. Meaning that the application layer must
 //! handle the buffers required to receive, process and send TLS data. Additionally it demonstrates
-//! using asynchronous I/O using either async-std or tokio.
+//! using asynchronous I/O via tokio.
 
 use std::error::Error;
 use std::sync::Arc;
 
-#[cfg(feature = "async-std")]
-use async_std::io::{ReadExt, WriteExt};
-#[cfg(feature = "async-std")]
-use async_std::net::TcpStream;
-#[cfg(not(feature = "async-std"))]
+use rustls::client::{ClientConnectionData, UnbufferedClientConnection};
+use rustls::unbuffered::{
+    AppDataRecord, ConnectionState, EncodeError, EncryptError, InsufficientSizeError,
+    UnbufferedStatus, WriteTraffic,
+};
+use rustls::version::TLS13;
+use rustls::{ClientConfig, RootCertStore};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-#[cfg(not(feature = "async-std"))]
 use tokio::net::TcpStream;
 use watfaq_rustls::client::{ClientConnectionData, UnbufferedClientConnection};
 use watfaq_rustls::unbuffered::{
@@ -21,8 +22,7 @@ use watfaq_rustls::unbuffered::{
 use watfaq_rustls::version::TLS13;
 use watfaq_rustls::{ClientConfig, RootCertStore};
 
-#[cfg_attr(not(feature = "async-std"), tokio::main(flavor = "current_thread"))]
-#[cfg_attr(feature = "async-std", async_std::main)]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn Error>> {
     let root_store = RootCertStore {
         roots: webpki_roots::TLS_SERVER_ROOTS.into(),
@@ -47,19 +47,19 @@ async fn converse(
     incoming_tls: &mut [u8],
     outgoing_tls: &mut Vec<u8>,
 ) -> Result<(), Box<dyn Error>> {
-    let mut conn = UnbufferedClientConnection::new(Arc::clone(config), SERVER_NAME.try_into()?)?;
+    let mut conn = UnbufferedClientConnection::new(config.clone(), SERVER_NAME.try_into()?)?;
     let mut sock = TcpStream::connect(format!("{SERVER_NAME}:{PORT}")).await?;
 
     let mut incoming_used = 0;
     let mut outgoing_used = 0;
 
     let mut we_closed = false;
-    let mut peer_closed = false;
+    let mut fully_closed = false;
     let mut sent_request = false;
     let mut received_response = false;
 
     let mut iter_count = 0;
-    while !(peer_closed || (we_closed && incoming_used == 0)) {
+    while !fully_closed {
         let UnbufferedStatus { mut discard, state } =
             conn.process_tls_records(&mut incoming_tls[..incoming_used]);
 
@@ -155,8 +155,10 @@ async fn converse(
                 }
             }
 
+            ConnectionState::PeerClosed => {}
+
             ConnectionState::Closed => {
-                peer_closed = true;
+                fully_closed = true;
             }
 
             // other states are not expected in this example
