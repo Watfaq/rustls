@@ -1,17 +1,20 @@
 [package]
-name = "rustls"
+name = "watfaq-rustls"
 version = "0.24.0-dev.0"
 edition = "2021"
 rust-version = "1.85"
 license = "Apache-2.0 OR ISC OR MIT"
 readme = "../README.md"
 description = "Rustls is a modern TLS library written in Rust."
-homepage = "https://github.com/rustls/rustls"
-repository = "https://github.com/rustls/rustls"
+homepage = "https://github.com/Watfaq/rustls"
+repository = "https://github.com/Watfaq/rustls"
 categories = ["network-programming", "cryptography"]
 autobenches = false
 autotests = false
 exclude = ["src/testdata", "tests/**"]
+
+[lib]
+name = "rustls"
 
 [features]
 default = ["log", "webpki"]
@@ -21,15 +24,20 @@ webpki = ["dep:webpki"]
 zlib = ["dep:zlib-rs"]
 
 [dependencies]
+aes-gcm = { workspace = true }
 brotli = { workspace = true, optional = true }
 brotli-decompressor = { workspace = true, optional = true }
+ed25519-dalek = { workspace = true }
 hashbrown = { workspace = true, optional = true }
+hmac = { workspace = true }
 log = { workspace = true, optional = true }
 # only required for no-std
 once_cell = { workspace = true, features = ["std"] }
 subtle = { workspace = true }
 webpki = { workspace = true, optional = true }
 pki-types = { workspace = true, features = ["std"] }
+sha2 = { workspace = true }
+x25519-dalek = { workspace = true }
 zeroize = { workspace = true }
 zlib-rs = { workspace = true, optional = true }
 

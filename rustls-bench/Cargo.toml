@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 clap = { workspace = true }
-rustls = { path = "../rustls" }
+rustls = { package = "watfaq-rustls", path = "../rustls" }
 rustls-aws-lc-rs = { path = "../rustls-aws-lc-rs", optional = true }
 rustls-ring = { path = "../rustls-ring", optional = true }
 rustls-graviola = { workspace = true, optional = true }

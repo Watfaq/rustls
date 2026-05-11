@@ -35,6 +35,10 @@ pub use connection::{ClientConnection, ClientConnectionBuilder, ClientSide, Writ
 mod ech;
 pub use ech::{EchConfig, EchGreaseConfig, EchMode, EchStatus};
 
+/// VLESS Reality client support.
+pub mod reality;
+pub use reality::{RealityConfig, RealityConfigError};
+
 mod handy;
 pub use handy::ClientSessionMemoryCache;
 

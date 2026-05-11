@@ -89,6 +89,10 @@ impl SessionId {
         }
     }
 
+    pub(crate) fn from_bytes(data: [u8; 32]) -> Self {
+        Self { data, len: 32 }
+    }
+
     pub(crate) fn is_empty(&self) -> bool {
         self.len == 0
     }

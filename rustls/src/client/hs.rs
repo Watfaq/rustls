@@ -9,6 +9,7 @@ use pki_types::ServerName;
 
 use super::config::{ClientSessionKey, Tls12Resumption};
 use super::ech::{EchMode, EchState, EchStatus};
+use super::reality;
 use super::{
     ClientHelloDetails, ClientSessionCommon, Retrieved, Tls12Session, Tls13Session, tls12, tls13,
 };
@@ -16,7 +17,9 @@ use crate::check::inappropriate_handshake_message;
 use crate::common_state::{EarlyDataEvent, Event, Output, OutputEvent, Protocol};
 use crate::conn::{Input, StateMachine};
 use crate::crypto::cipher::Payload;
-use crate::crypto::kx::{KeyExchangeAlgorithm, StartedKeyExchange, SupportedKxGroup};
+use crate::crypto::kx::{
+    KeyExchangeAlgorithm, NamedGroup, StartedKeyExchange, SupportedKxGroup,
+};
 use crate::crypto::{CipherSuite, CryptoProvider, rand};
 use crate::enums::{
     ApplicationProtocol, CertificateType, ContentType, HandshakeType, ProtocolVersion,
@@ -26,7 +29,7 @@ use crate::hash_hs::HandshakeHashBuffer;
 use crate::kernel::KernelState;
 use crate::log::{debug, trace};
 use crate::msgs::{
-    CertificateStatusRequest, ClientExtensions, ClientExtensionsInput, ClientHelloPayload,
+    Codec, CertificateStatusRequest, ClientExtensions, ClientExtensionsInput, ClientHelloPayload,
     ClientSessionTicket, Compression, EncryptedClientHello, ExtensionType, HandshakeMessagePayload,
     HandshakePayload, HelloRetryRequest, KeyShareEntry, Message, MessagePayload,
     PskKeyExchangeModes, Random, ServerHelloPayload, ServerNamePayload, SessionId,
@@ -97,6 +100,7 @@ pub(crate) struct ExpectServerHello {
     pub(super) ech_state: Option<EchState>,
     pub(super) ech_status: EchStatus,
     pub(super) done_retry: bool,
+    pub(super) reality_state: Option<reality::RealitySessionState>,
 }
 
 impl ExpectServerHello {
@@ -375,6 +379,7 @@ impl ExpectServerHelloOrHelloRetryRequest {
             output,
             self.next.ech_state,
             self.next.ech_status,
+            self.next.reality_state,
         )
     }
 }
@@ -498,7 +503,27 @@ impl ClientHelloInput {
             transcript_buffer.set_client_auth_enabled();
         }
 
-        let key_share = if self
+        // Initialize Reality state if configured
+        let reality_state = self
+            .config
+            .reality_config
+            .as_ref()
+            .map(|rc| reality::RealitySessionState::new(Arc::clone(rc), self.config.provider()))
+            .transpose()?;
+
+        let key_share = if let Some(ref reality) = reality_state {
+            // Use Reality's pre-generated X25519 keypair as the key share
+            let x25519_group = self
+                .config
+                .provider()
+                .find_kx_group(NamedGroup::X25519, ProtocolVersion::TLSv1_3)
+                .ok_or_else(|| Error::General("X25519 group required for Reality".into()))?;
+            let kx = reality.clone().into_key_exchange();
+            Some(GroupAndKeyShare {
+                group: x25519_group,
+                share: StartedKeyExchange::Single(kx),
+            })
+        } else if self
             .config
             .supports_version(ProtocolVersion::TLSv1_3)
         {
@@ -526,6 +551,7 @@ impl ClientHelloInput {
             output,
             ech_state,
             EchStatus::default(),
+            reality_state,
         )
     }
 }
@@ -545,6 +571,7 @@ fn emit_client_hello_for_retry(
     output: &mut dyn Output<'_>,
     mut ech_state: Option<EchState>,
     mut ech_status: EchStatus,
+    reality_state: Option<reality::RealitySessionState>,
 ) -> Result<ClientState, Error> {
     let config = &input.config;
     // Defense in depth: the ECH state should be None if ECH is disabled based on config
@@ -792,6 +819,32 @@ fn emit_client_hello_for_retry(
 
     let mut chp = HandshakeMessagePayload(HandshakePayload::ClientHello(chp_payload));
 
+    // Compute Reality session_id (before PSK binder so the binder covers our encrypted session_id)
+    if let Some(ref reality) = reality_state {
+        // Zero out session_id for AAD computation
+        if let HandshakeMessagePayload(HandshakePayload::ClientHello(ref mut c)) = chp {
+            c.session_id = SessionId::from_bytes([0u8; 32]);
+        }
+
+        // Encode ClientHello with zeroed session_id for AAD
+        let mut encoded = Vec::new();
+        chp.encode(&mut encoded);
+
+        // Get timestamp
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as u32)
+            .unwrap_or(0);
+
+        let hkdf = reality::get_hkdf_sha256_from_provider(input.config.provider())?;
+
+        let session_id_bytes = reality.compute_session_id(&input.random, &encoded, hkdf, timestamp)?;
+
+        if let HandshakeMessagePayload(HandshakePayload::ClientHello(ref mut c)) = chp {
+            c.session_id = SessionId::from_bytes(session_id_bytes);
+        }
+    }
+
     let tls13_early_data_key_schedule = match (ech_state.as_mut(), tls13_session) {
         // If we're performing ECH and resuming, then the PSK binder will have been dealt with
         // separately, and we need to take the early_data_key_schedule computed for the inner hello.
@@ -883,6 +936,7 @@ fn emit_client_hello_for_retry(
         ech_state,
         ech_status,
         done_retry: false,
+        reality_state,
     });
 
     Ok(if supported_versions.tls13 && retryreq.is_none() {

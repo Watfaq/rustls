@@ -7,7 +7,7 @@ description = "Rustls connectivity based integration tests."
 publish = false
 
 [dependencies]
-rustls = { path = "../rustls", features = ["log"] }
+rustls = { package = "watfaq-rustls", path = "../rustls", features = ["log"] }
 
 [dev-dependencies]
 regex = { workspace = true }

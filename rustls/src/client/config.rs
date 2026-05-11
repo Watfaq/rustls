@@ -173,6 +173,9 @@ pub struct ClientConfig {
 
     /// How to offer Encrypted Client Hello (ECH). The default is to not offer ECH.
     pub(super) ech_mode: Option<EchMode>,
+
+    /// VLESS Reality configuration, if enabled.
+    pub(super) reality_config: Option<Arc<super::reality::RealityConfig>>,
 }
 
 impl ClientConfig {
@@ -646,6 +649,7 @@ impl ConfigBuilder<ClientConfig, WantsVerifier> {
             state: WantsClientCert {
                 verifier,
                 client_ech_mode: self.state.client_ech_mode,
+                reality_config: None,
             },
             provider: self.provider,
             time_provider: self.time_provider,
@@ -683,9 +687,20 @@ impl ConfigBuilder<ClientConfig, WantsVerifier> {
 pub struct WantsClientCert {
     verifier: Arc<dyn verify::ServerVerifier>,
     client_ech_mode: Option<EchMode>,
+    reality_config: Option<Arc<super::reality::RealityConfig>>,
 }
 
 impl ConfigBuilder<ClientConfig, WantsClientCert> {
+    /// Enable VLESS Reality protocol.
+    pub fn with_reality(mut self, config: super::reality::RealityConfig) -> Self {
+        use super::reality::RealityServerCertVerifier;
+        let auth_key_slot = Arc::clone(&config.auth_key_slot);
+        let inner = Arc::clone(&self.state.verifier);
+        self.state.verifier = RealityServerCertVerifier::new(auth_key_slot, inner);
+        self.state.reality_config = Some(Arc::new(config));
+        self
+    }
+
     /// Sets a single certificate chain and matching private key for use
     /// in client authentication.
     ///
@@ -753,6 +768,7 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
             cert_compressors: compress::default_cert_compressors().to_vec(),
             cert_compression_cache: Arc::new(compress::CompressionCache::default()),
             ech_mode: self.state.client_ech_mode,
+            reality_config: self.state.reality_config,
         })
     }
 }
@@ -798,6 +814,7 @@ pub(super) mod danger {
                 state: WantsClientCert {
                     verifier,
                     client_ech_mode: self.cfg.state.client_ech_mode,
+                    reality_config: None,
                 },
                 provider: self.cfg.provider,
                 time_provider: self.cfg.time_provider,
