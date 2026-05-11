@@ -43,7 +43,7 @@ log = { workspace = true, optional = true }
 once_cell = { workspace = true }
 ring = { workspace = true, optional = true }
 subtle = { workspace = true }
-x25519-dalek = { workspace = true, optional = true }
+x25519-dalek = { workspace = true }
 webpki = { workspace = true }
 pki-types = { workspace = true }
 zeroize = { workspace = true }
