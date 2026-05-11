@@ -703,6 +703,35 @@ fn client_hello_sent_for_config(config: ClientConfig) -> Result<ClientHelloPaylo
     }
 }
 
+fn client_hello_sent_with_session_id_generator(
+    config: ClientConfig,
+    generator: impl Fn(&[u8]) -> [u8; 32],
+) -> Result<ClientHelloPayload, Error> {
+    let mut conn = ClientConnection::new_with_session_id_generator(
+        config.into(),
+        ServerName::try_from("localhost").unwrap(),
+        Some(generator),
+    )?;
+    let mut bytes = Vec::new();
+    conn.write_tls(&mut bytes).unwrap();
+
+    let message = OutboundOpaqueMessage::read(&mut Reader::init(&bytes))
+        .unwrap()
+        .into_plain_message();
+
+    match Message::try_from(message).unwrap() {
+        Message {
+            payload:
+                MessagePayload::Handshake {
+                    parsed: HandshakeMessagePayload(HandshakePayload::ClientHello(ch)),
+                    ..
+                },
+            ..
+        } => Ok(ch),
+        other => panic!("unexpected message {other:?}"),
+    }
+}
+
 fn roots() -> RootCertStore {
     let mut r = RootCertStore::empty();
     r.add(CertificateDer::from_slice(include_bytes!(
@@ -710,4 +739,52 @@ fn roots() -> RootCertStore {
     )))
     .unwrap();
     r
+}
+
+/// Tests that when Reality is configured, the session_id_generator does not
+/// overwrite Reality's cryptographically-computed session_id.
+#[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
+#[test]
+fn test_reality_session_id_not_overwritten_by_session_id_generator() {
+    use super::reality::RealityConfig;
+
+    #[cfg(feature = "ring")]
+    let provider = crate::crypto::ring::default_provider();
+    #[cfg(all(not(feature = "ring"), feature = "aws_lc_rs"))]
+    let provider = crate::crypto::aws_lc_rs::default_provider();
+
+    let server_pk = [1u8; 32];
+    let short_id = vec![0x12, 0x34];
+    let reality = RealityConfig::new(server_pk, short_id).unwrap();
+
+    let config = ClientConfig::builder_with_provider(provider.into())
+        .with_protocol_versions(&[&crate::version::TLS13])
+        .unwrap()
+        .with_root_certificates(roots())
+        .with_reality(reality)
+        .with_no_client_auth();
+
+    // Get ClientHello with Reality only (no session_id_generator)
+    let ch_reality_only = client_hello_sent_for_config(config.clone()).unwrap();
+
+    // Get ClientHello with Reality + a session_id_generator that would produce all-0xFF
+    let ch_reality_with_generator = client_hello_sent_with_session_id_generator(
+        config,
+        |_| [0xFF; 32],
+    )
+    .unwrap();
+
+    // Reality session_id should NOT be all zeros (it's encrypted data)
+    assert_ne!(ch_reality_only.session_id.data, [0u8; 32]);
+
+    // With both Reality and session_id_generator, the session_id should come from
+    // Reality (not the generator's all-0xFF value)
+    assert_ne!(
+        ch_reality_with_generator.session_id.data,
+        [0xFF; 32],
+        "session_id_generator should not overwrite Reality's session_id"
+    );
+
+    // The session_id should still be non-zero (Reality-computed)
+    assert_ne!(ch_reality_with_generator.session_id.data, [0u8; 32]);
 }
