@@ -145,7 +145,7 @@
 //!
 //! ```rust,no_run
 //! # #[cfg(feature = "aws-lc-rs")] {
-//! let root_store = rustls::RootCertStore::from_iter(
+//! let root_store = watfaq_rustls::RootCertStore::from_iter(
 //!     webpki_roots::TLS_SERVER_ROOTS
 //!         .iter()
 //!         .cloned(),
@@ -160,8 +160,8 @@
 //!
 //! ```rust,no_run
 //! # #[cfg(feature = "aws_lc_rs")] {
-//! # let root_store: rustls::RootCertStore = panic!();
-//! let config = rustls::ClientConfig::builder()
+//! # let root_store: watfaq_rustls::RootCertStore = panic!();
+//! let config = watfaq_rustls::ClientConfig::builder()
 //!     .with_root_certificates(root_store)
 //!     .with_no_client_auth();
 //! # }
@@ -172,21 +172,20 @@
 //!
 //! ```rust
 //! # #[cfg(feature = "aws_lc_rs")] {
-//! # use rustls;
 //! # use webpki;
 //! # use std::sync::Arc;
-//! # rustls::crypto::aws_lc_rs::default_provider().install_default();
-//! # let root_store = rustls::RootCertStore::from_iter(
+//! # watfaq_rustls::crypto::aws_lc_rs::default_provider().install_default();
+//! # let root_store = watfaq_rustls::RootCertStore::from_iter(
 //! #  webpki_roots::TLS_SERVER_ROOTS
 //! #      .iter()
 //! #      .cloned(),
 //! # );
-//! # let config = rustls::ClientConfig::builder()
+//! # let config = watfaq_rustls::ClientConfig::builder()
 //! #     .with_root_certificates(root_store)
 //! #     .with_no_client_auth();
 //! let rc_config = Arc::new(config);
 //! let example_com = "example.com".try_into().unwrap();
-//! let mut client = rustls::ClientConnection::new(rc_config, example_com);
+//! let mut client = watfaq_rustls::ClientConnection::new(rc_config, example_com);
 //! # }
 //! ```
 //!
@@ -215,7 +214,7 @@
 //!
 //! ```rust,no_run
 //! # #[cfg(feature = "aws_lc_rs")] {
-//! # let mut client = rustls::ClientConnection::new(panic!(), panic!()).unwrap();
+//! # let mut client = watfaq_rustls::ClientConnection::new(panic!(), panic!()).unwrap();
 //! # struct Socket { }
 //! # impl Socket {
 //! #   fn ready_for_write(&self) -> bool { false }
@@ -236,7 +235,7 @@
 //! #   panic!();
 //! # }
 //! use std::io;
-//! use rustls::Connection;
+//! use watfaq_rustls::Connection;
 //!
 //! client.writer().write(b"GET / HTTP/1.0\r\n\r\n").unwrap();
 //! let mut socket = connect("example.com", 443);
@@ -586,6 +585,7 @@ pub mod client {
     mod ech;
     pub(super) mod handy;
     mod hs;
+    pub mod reality;
     #[cfg(test)]
     mod test;
     #[cfg(feature = "tls12")]
@@ -603,6 +603,7 @@ pub mod client {
     pub use handy::AlwaysResolvesClientRawPublicKeys;
     #[cfg(any(feature = "std", feature = "hashbrown"))]
     pub use handy::ClientSessionMemoryCache;
+    pub use reality::{RealityConfig, RealityConfigError};
 
     /// Dangerous configuration that should be audited and used with extreme care.
     pub mod danger {

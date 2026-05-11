@@ -6,6 +6,7 @@ use core::ops::Deref;
 
 use pki_types::ServerName;
 
+use super::reality;
 #[cfg(feature = "tls12")]
 use super::tls12;
 use super::{ResolvesClientCert, Tls12Resumption};
@@ -27,7 +28,8 @@ use crate::error::{Error, PeerIncompatible, PeerMisbehaved};
 use crate::hash_hs::HandshakeHashBuffer;
 use crate::log::{debug, trace};
 use crate::msgs::base::Payload;
-use crate::msgs::enums::{Compression, ExtensionType};
+use crate::msgs::codec::Codec;
+use crate::msgs::enums::{Compression, ExtensionType, NamedGroup};
 use crate::msgs::handshake::{
     CertificateStatusRequest, ClientExtensions, ClientExtensionsInput, ClientHelloPayload,
     ClientSessionTicket, EncryptedClientHello, HandshakeMessagePayload, HandshakePayload,
@@ -44,6 +46,128 @@ pub(super) type NextState<'a> = Box<dyn State<ClientConnectionData> + 'a>;
 pub(super) type NextStateOrError<'a> = Result<NextState<'a>, Error>;
 pub(super) type ClientContext<'a> = crate::common_state::Context<'a, ClientConnectionData>;
 
+
+pub(super) fn start_handshake<T>(
+    server_name: ServerName<'static>,
+    extra_exts: ClientExtensionsInput<'static>,
+    config: Arc<ClientConfig>,
+    cx: &mut ClientContext<'_>,
+    session_id_generator: Option<T>,
+) -> NextStateOrError<'static>
+where
+    T: Fn(&[u8]) -> [u8; 32],
+{
+    let mut transcript_buffer = HandshakeHashBuffer::new();
+    if config
+        .client_auth_cert_resolver
+        .has_certs()
+    {
+        transcript_buffer.set_client_auth_enabled();
+    }
+
+    let mut resuming = ClientSessionValue::retrieve(&server_name, &config, cx);
+
+    // Initialize Reality state if configured
+    let reality_state = config
+        .reality_config
+        .as_ref()
+        .map(|reality_config| {
+            reality::RealitySessionState::new(Arc::clone(reality_config), &config.provider)
+        })
+        .transpose()?;
+
+    // For Reality, use Reality's X25519 key exchange; otherwise use normal TLS
+    let key_share = if reality_state.is_some() {
+        // Reality provides its own key exchange (X25519)
+        let x25519_group = config
+            .find_kx_group(NamedGroup::X25519, ProtocolVersion::TLSv1_3)
+            .ok_or(Error::General("X25519 group required for Reality".into()))?;
+        cx.common.kx_state = KxState::Start(x25519_group);
+        None // Will be set later from reality_state
+    } else if config.supports_version(ProtocolVersion::TLSv1_3) {
+        Some(tls13::initial_key_share(
+            &config,
+            &server_name,
+            &mut cx.common.kx_state,
+        )?)
+    } else {
+        None
+    };
+
+    let session_id = match &mut resuming {
+        Some(_resuming) => {
+            debug!("Resuming session");
+            match &mut _resuming.value {
+                #[cfg(feature = "tls12")]
+                ClientSessionValue::Tls12(inner) => {
+                    // If we have a ticket, we use the sessionid as a signal that
+                    // we're doing an abbreviated handshake.  See section 3.4 in
+                    // RFC5077.
+                    if !inner.ticket().0.is_empty() {
+                        inner.session_id = SessionId::random(config.provider.secure_random)?;
+                    }
+                    Some(inner.session_id)
+                }
+                _ => None,
+            }
+        }
+        _ => {
+            debug!("Not resuming any session");
+            None
+        }
+    };
+
+    // https://tools.ietf.org/html/rfc8446#appendix-D.4
+    // https://tools.ietf.org/html/draft-ietf-quic-tls-34#section-8.4
+    let session_id = match session_id {
+        Some(session_id) => session_id,
+        None if cx.common.is_quic() => SessionId::empty(),
+        None if !config.supports_version(ProtocolVersion::TLSv1_3) => SessionId::empty(),
+        None => SessionId::random(config.provider.secure_random)?,
+    };
+
+    let random = Random::new(config.provider.secure_random)?;
+    let extension_order_seed = crate::rand::random_u16(config.provider.secure_random)?;
+
+    let hello = ClientHelloDetails::new(
+        extra_exts
+            .protocols
+            .clone()
+            .unwrap_or_default(),
+        extension_order_seed,
+    );
+
+    let ech_state = match config.ech_mode.as_ref() {
+        Some(EchMode::Enable(ech_config)) => {
+            Some(ech_config.state(server_name.clone(), &config)?)
+        }
+        _ => None,
+    };
+
+    emit_client_hello_for_retry(
+        transcript_buffer,
+        None,
+        key_share,
+        extra_exts,
+        None,
+        session_id_generator,
+        ClientHelloInput {
+            config,
+            resuming,
+            random,
+            sent_tls13_fake_ccs: false,
+            hello,
+            session_id,
+            server_name,
+            prev_ech_ext: None,
+        },
+        cx,
+        ech_state,
+        reality_state,
+    )
+}
+
+
 struct ExpectServerHello {
     input: ClientHelloInput,
     transcript_buffer: HandshakeHashBuffer,
@@ -58,6 +182,7 @@ struct ExpectServerHello {
     offered_key_share: Option<Box<dyn ActiveKeyExchange>>,
     suite: Option<SupportedCipherSuite>,
     ech_state: Option<EchState>,
+    reality_state: Option<reality::RealitySessionState>,
 }
 
 struct ExpectServerHelloOrHelloRetryRequest {
@@ -76,125 +201,36 @@ pub(super) struct ClientHelloInput {
     pub(super) prev_ech_ext: Option<EncryptedClientHello>,
 }
 
-impl ClientHelloInput {
-    pub(super) fn new(
-        server_name: ServerName<'static>,
-        extra_exts: &ClientExtensionsInput<'_>,
-        cx: &mut ClientContext<'_>,
-        config: Arc<ClientConfig>,
-    ) -> Result<Self, Error> {
-        let mut resuming = ClientSessionValue::retrieve(&server_name, &config, cx);
-        let session_id = match &mut resuming {
-            Some(_resuming) => {
-                debug!("Resuming session");
-                match &mut _resuming.value {
-                    #[cfg(feature = "tls12")]
-                    ClientSessionValue::Tls12(inner) => {
-                        // If we have a ticket, we use the sessionid as a signal that
-                        // we're  doing an abbreviated handshake.  See section 3.4 in
-                        // RFC5077.
-                        if !inner.ticket().0.is_empty() {
-                            inner.session_id = SessionId::random(config.provider.secure_random)?;
-                        }
-                        Some(inner.session_id)
-                    }
-                    _ => None,
-                }
-            }
-            _ => {
-                debug!("Not resuming any session");
-                None
-            }
-        };
-
-        // https://tools.ietf.org/html/rfc8446#appendix-D.4
-        // https://tools.ietf.org/html/draft-ietf-quic-tls-34#section-8.4
-        let session_id = match session_id {
-            Some(session_id) => session_id,
-            None if cx.common.is_quic() => SessionId::empty(),
-            None if !config.supports_version(ProtocolVersion::TLSv1_3) => SessionId::empty(),
-            None => SessionId::random(config.provider.secure_random)?,
-        };
-
-        let hello = ClientHelloDetails::new(
-            extra_exts
-                .protocols
-                .clone()
-                .unwrap_or_default(),
-            crate::rand::random_u16(config.provider.secure_random)?,
-        );
-
-        Ok(Self {
-            resuming,
-            random: Random::new(config.provider.secure_random)?,
-            sent_tls13_fake_ccs: false,
-            hello,
-            session_id,
-            server_name,
-            prev_ech_ext: None,
-            config,
-        })
-    }
-
-    pub(super) fn start_handshake(
-        self,
-        extra_exts: ClientExtensionsInput<'static>,
-        cx: &mut ClientContext<'_>,
-    ) -> NextStateOrError<'static> {
-        let mut transcript_buffer = HandshakeHashBuffer::new();
-        if self
-            .config
-            .client_auth_cert_resolver
-            .has_certs()
-        {
-            transcript_buffer.set_client_auth_enabled();
-        }
-
-        let key_share = if self.config.needs_key_share() {
-            Some(tls13::initial_key_share(
-                &self.config,
-                &self.server_name,
-                &mut cx.common.kx_state,
-            )?)
-        } else {
-            None
-        };
-
-        let ech_state = match self.config.ech_mode.as_ref() {
-            Some(EchMode::Enable(ech_config)) => {
-                Some(ech_config.state(self.server_name.clone(), &self.config)?)
-            }
-            _ => None,
-        };
-
-        emit_client_hello_for_retry(
-            transcript_buffer,
-            None,
-            key_share,
-            extra_exts,
-            None,
-            self,
-            cx,
-            ech_state,
-        )
-    }
-}
-
 /// Emits the initial ClientHello or a ClientHello in response to
 /// a HelloRetryRequest.
 ///
 /// `retryreq` and `suite` are `None` if this is the initial
 /// ClientHello.
-fn emit_client_hello_for_retry(
+fn emit_client_hello_for_retry<T>(
     mut transcript_buffer: HandshakeHashBuffer,
     retryreq: Option<&HelloRetryRequest>,
     key_share: Option<Box<dyn ActiveKeyExchange>>,
     extra_exts: ClientExtensionsInput<'static>,
     suite: Option<SupportedCipherSuite>,
+    session_id_generator: Option<T>,
     mut input: ClientHelloInput,
     cx: &mut ClientContext<'_>,
     mut ech_state: Option<EchState>,
-) -> NextStateOrError<'static> {
+    reality_state: Option<reality::RealitySessionState>,
+) -> NextStateOrError<'static>
+where
+    T: Fn(&[u8]) -> [u8; 32],
+{
+    // If Reality is enabled, convert Reality state into ActiveKeyExchange
+    // This ensures the Reality shared secret is used for TLS key schedule
+    let (key_share, reality_key_share_entry) = if let Some(ref reality) = reality_state {
+        let entry = reality.key_share_entry();
+        let kx = reality.clone().into_key_exchange();
+        (Some(kx), Some(entry))
+    } else {
+        (key_share, None)
+    };
+
     let config = &input.config;
     // Defense in depth: the ECH state should be None if ECH is disabled based on config
     // builder semantics.
@@ -271,7 +307,11 @@ fn emit_client_hello_for_retry(
         (None, false) => None,
     };
 
-    if let Some(key_share) = &key_share {
+    // Add key_share extension
+    // If Reality is enabled, use Reality's key_share entry; otherwise use normal TLS key_share
+    if let Some(reality_entry) = reality_key_share_entry {
+        exts.key_shares = Some(vec![reality_entry]);
+    } else if let Some(key_share) = &key_share {
         debug_assert!(supported_versions.tls13);
         let mut shares = vec![KeyShareEntry::new(key_share.group(), key_share.pub_key())];
 
@@ -425,6 +465,47 @@ fn emit_client_hello_for_retry(
 
     let mut chp = HandshakeMessagePayload(HandshakePayload::ClientHello(chp_payload));
 
+    // Compute Reality session_id BEFORE PSK binder to avoid invalidating the binder
+    // Reality uses ClientHello with session_id=0 as AAD, so this order is safe
+    if let Some(ref reality) = reality_state {
+        // Step 1: Set session_id to zero temporarily
+        let mut buffer = Vec::new();
+        match &mut chp.0 {
+            HandshakePayload::ClientHello(c) => {
+                c.session_id = SessionId {
+                    len: 32,
+                    data: [0; 32],
+                };
+            }
+            _ => unreachable!(),
+        }
+
+        // Step 2: Encode ClientHello with zero session_id (for AAD)
+        chp.encode(&mut buffer);
+
+        // Step 3: Get HKDF-SHA256 provider
+        let hkdf = reality::get_hkdf_sha256_from_config(&config.provider.cipher_suites)?;
+
+        // Step 4: Compute Reality session_id
+        let session_id_data = reality.compute_session_id(
+            &input.random,
+            &buffer,
+            hkdf,
+            config.time_provider.as_ref(),
+        )?;
+
+        // Step 5: Update session_id with computed Reality value
+        match &mut chp.0 {
+            HandshakePayload::ClientHello(c) => {
+                c.session_id = SessionId {
+                    len: 32,
+                    data: session_id_data,
+                };
+            }
+            _ => unreachable!(),
+        }
+    }
+
     let tls13_early_data_key_schedule = match (ech_state.as_mut(), tls13_session) {
         // If we're performing ECH and resuming, then the PSK binder will have been dealt with
         // separately, and we need to take the early_data_key_schedule computed for the inner hello.
@@ -434,7 +515,7 @@ fn emit_client_hello_for_retry(
             .map(|schedule| (tls13_session.suite(), schedule)),
 
         // When we're not doing ECH and resuming, then the PSK binder need to be filled in as
-        // normal.
+        // normal. Reality session_id has been set above, so PSK binder will see the correct value.
         (_, Some(tls13_session)) => Some((
             tls13_session.suite(),
             tls13::fill_in_psk_binder(&tls13_session, &transcript_buffer, &mut chp),
@@ -443,6 +524,35 @@ fn emit_client_hello_for_retry(
         // No early key schedule in other cases.
         _ => None,
     };
+
+    // ref: https://github.com/shadow-tls/rustls/blob/c033c22cdbb6b08adf8b35571ee8427c70512d13/rustls/src/client/hs.rs#L365
+    // Skip session_id_generator when Reality is active — Reality computes its own
+    // cryptographic session_id above, and overwriting it would break the handshake.
+    if reality_state.is_none() {
+        if let Some(generator) = session_id_generator {
+            let mut buffer = Vec::new();
+            match &mut chp.0 {
+                HandshakePayload::ClientHello(c) => {
+                    c.session_id = SessionId {
+                        len: 32,
+                        data: [0; 32],
+                    };
+                }
+                _ => unreachable!(),
+            }
+            chp.encode(&mut buffer);
+            let session_id = SessionId {
+                len: 32,
+                data: generator(&buffer),
+            };
+            match &mut chp.0 {
+                HandshakePayload::ClientHello(c) => {
+                    c.session_id = session_id;
+                }
+                _ => unreachable!(),
+            }
+        }
+    }
 
     let ch = Message {
         version: match retryreq {
@@ -507,6 +617,7 @@ fn emit_client_hello_for_retry(
         offered_key_share: key_share,
         suite,
         ech_state,
+        reality_state,
     };
 
     Ok(if supported_versions.tls13 && retryreq.is_none() {
@@ -1010,15 +1121,17 @@ impl ExpectServerHelloOrHelloRetryRequest {
             _ => offered_key_share,
         };
 
-        emit_client_hello_for_retry(
+        emit_client_hello_for_retry::<fn(&[u8]) -> [u8; 32]>(
             transcript_buffer,
             Some(hrr),
             Some(key_share),
             self.extra_exts,
             Some(cs),
+            None,
             self.next.input,
             cx,
             self.next.ech_state,
+            self.next.reality_state,
         )
     }
 }

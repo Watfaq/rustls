@@ -6,7 +6,7 @@ use core::{fmt, mem};
 use pki_types::{ServerName, UnixTime};
 
 use super::handy::NoClientSessionStorage;
-use super::hs::{self, ClientHelloInput};
+use super::hs;
 #[cfg(feature = "std")]
 use crate::WantsVerifier;
 use crate::builder::ConfigBuilder;
@@ -287,6 +287,9 @@ pub struct ClientConfig {
 
     /// How to offer Encrypted Client Hello (ECH). The default is to not offer ECH.
     pub(super) ech_mode: Option<EchMode>,
+
+    /// VLESS Reality protocol configuration. The default is None (disabled).
+    pub(super) reality_config: Option<Arc<crate::client::reality::RealityConfig>>,
 }
 
 impl ClientConfig {
@@ -716,6 +719,24 @@ mod connection {
             Self::new_with_alpn(config.clone(), name, config.alpn_protocols.clone())
         }
 
+        /// Make a new ClientConnection with a session id generator.  `config` controls how
+        pub fn new_with_session_id_generator(
+            config: Arc<ClientConfig>,
+            name: ServerName<'static>,
+            generator: Option<impl Fn(&[u8]) -> [u8; 32]>,
+        ) -> Result<Self, Error> {
+            Ok(Self {
+                inner: ConnectionCore::for_client_with_session_id_generator(
+                    config,
+                    name,
+                    ClientExtensionsInput::default(),
+                    Protocol::Tcp,
+                    generator,
+                )?
+                .into(),
+            })
+        }
+
         /// Make a new ClientConnection with custom ALPN protocols.
         pub fn new_with_alpn(
             config: Arc<ClientConfig>,
@@ -867,8 +888,32 @@ impl ConnectionCore<ClientConnectionData> {
             sendable_plaintext: None,
         };
 
-        let input = ClientHelloInput::new(name, &extra_exts, &mut cx, config)?;
-        let state = input.start_handshake(extra_exts, &mut cx)?;
+
+        let state =
+            hs::start_handshake::<fn(&[u8]) -> [u8; 32]>(name, extra_exts, config, &mut cx, None)?;
+        Ok(Self::new(state, data, common_state))
+    }
+
+    pub(crate) fn for_client_with_session_id_generator(
+        config: Arc<ClientConfig>,
+        name: ServerName<'static>,
+        extra_exts: ClientExtensionsInput<'static>,
+        proto: Protocol,
+        generator: Option<impl Fn(&[u8]) -> [u8; 32]>,
+    ) -> Result<Self, Error> {
+        let mut common_state = CommonState::new(Side::Client);
+        common_state.set_max_fragment_size(config.max_fragment_size)?;
+        common_state.protocol = proto;
+        common_state.enable_secret_extraction = config.enable_secret_extraction;
+        let mut data = ClientConnectionData::new();
+
+        let mut cx = hs::ClientContext {
+            common: &mut common_state,
+            data: &mut data,
+            sendable_plaintext: None,
+        };
+
+        let state = hs::start_handshake(name, extra_exts, config, &mut cx, generator)?;
         Ok(Self::new(state, data, common_state))
     }
 

@@ -117,9 +117,9 @@ impl From<[u8; 32]> for Random {
 }
 
 #[derive(Copy, Clone)]
-pub(crate) struct SessionId {
-    len: usize,
-    data: [u8; 32],
+pub struct SessionId {
+    pub(crate) len: usize,
+    pub(crate) data: [u8; 32],
 }
 
 impl fmt::Debug for SessionId {
@@ -1332,6 +1332,8 @@ impl ClientHelloPayload {
             })
             .unwrap_or_default()
     }
+
+
 
     pub(crate) fn has_certificate_compression_extension_with_duplicates(&self) -> bool {
         if let Some(algs) = &self.certificate_compression_algorithms {
