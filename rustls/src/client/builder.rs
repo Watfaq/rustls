@@ -17,8 +17,13 @@ use crate::{WantsVersions, compress, verify, versions};
 impl ConfigBuilder<ClientConfig, WantsVersions> {
     /// Enable Encrypted Client Hello (ECH) in the given mode.
     ///
-    /// This implicitly selects TLS 1.3 as the only supported protocol version to meet the
-    /// requirement to support ECH.
+    /// [`EchMode::Enable`] implicitly selects TLS 1.3 as the only supported protocol version,
+    /// to meet the requirement to support ECH.
+    ///
+    /// [`EchMode::Grease`] does not: it sends a placeholder extension and negotiates nothing,
+    /// so there is no version requirement to meet. Pinning TLS 1.3 on its account would drop
+    /// TLS 1.2 from the hello - narrowing what the connection can do, and changing the hello
+    /// itself, which is the opposite of what a client GREASEing to blend in wants.
     ///
     /// The `ClientConfig` that will be produced by this builder will be specific to the provided
     /// [`crate::client::EchConfig`] and may not be appropriate for all connections made by the program.
@@ -28,7 +33,10 @@ impl ConfigBuilder<ClientConfig, WantsVersions> {
         self,
         mode: EchMode,
     ) -> Result<ConfigBuilder<ClientConfig, WantsVerifier>, Error> {
-        let mut res = self.with_protocol_versions(&[&TLS13][..])?;
+        let mut res = match mode {
+            EchMode::Enable(_) => self.with_protocol_versions(&[&TLS13][..])?,
+            EchMode::Grease(_) => self.with_safe_default_protocol_versions()?,
+        };
         res.state.client_ech_mode = Some(mode);
         Ok(res)
     }

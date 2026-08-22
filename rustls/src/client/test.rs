@@ -1243,3 +1243,75 @@ fn grease_goes_in_front_of_a_dictated_cipher_list_too() {
     assert!(is_grease(hello.cipher_suites[0]));
     assert_eq!(hello.cipher_suites[1..], [0x1301, 0x1302]);
 }
+
+#[cfg(feature = "aws_lc_rs")]
+#[test]
+fn grease_ech_carries_the_kem_of_the_suite_it_was_given() {
+    use crate::client::{EchGreaseConfig, EchMode};
+    use crate::crypto::aws_lc_rs::hpke::{
+        DH_KEM_P256_HKDF_SHA256_AES_128, DH_KEM_X25519_HKDF_SHA256_AES_128,
+    };
+    use crate::crypto::hpke::Hpke;
+
+    // The `enc` field carries an ephemeral public key, and its length is the
+    // KEM's own: 32 bytes for X25519, 65 for an uncompressed P-256 point.
+    // GREASE that always claims P-256 no matter which suite it was handed is
+    // distinguishable from a client that GREASEs with X25519 - which is what
+    // browsers do, and the whole point of GREASE is to be indistinguishable.
+    for (suite, enc_len) in [
+        (DH_KEM_X25519_HKDF_SHA256_AES_128 as &'static dyn Hpke, 32),
+        (DH_KEM_P256_HKDF_SHA256_AES_128 as &'static dyn Hpke, 65),
+    ] {
+        let (public_key, _) = suite.generate_key_pair().unwrap();
+
+        let config = ClientConfig::builder_with_provider(
+            crate::crypto::aws_lc_rs::default_provider().into(),
+        )
+        .with_ech(EchMode::Grease(EchGreaseConfig::new(suite, public_key)))
+        .unwrap()
+        .with_root_certificates(roots())
+        .with_no_client_auth();
+
+        let hello = WireClientHello::capture(config);
+        let body = hello
+            .extension(0xfe0d)
+            .expect("no encrypted_client_hello extension");
+
+        // 0x00 outer, kdf u16, aead u16, config_id u8, then enc as a
+        // length-prefixed payload.
+        assert_eq!(body[0], 0x00, "not an outer ECH");
+        assert_eq!(
+            u16::from_be_bytes([body[6], body[7]]) as usize,
+            enc_len,
+            "{:?}",
+            suite.suite().kem
+        );
+    }
+}
+
+#[cfg(feature = "aws_lc_rs")]
+#[test]
+fn grease_ech_does_not_drop_tls12_from_the_hello() {
+    use crate::client::{EchGreaseConfig, EchMode};
+    use crate::crypto::aws_lc_rs::hpke::DH_KEM_X25519_HKDF_SHA256_AES_128;
+    use crate::crypto::hpke::Hpke;
+
+    // Real ECH needs TLS 1.3 and says so by pinning the version. GREASE ECH
+    // negotiates nothing, so it has no such requirement - and a client that
+    // sends the placeholder extension while quietly dropping TLS 1.2 has
+    // changed the very thing it was trying to blend into.
+    let suite = DH_KEM_X25519_HKDF_SHA256_AES_128 as &'static dyn Hpke;
+    let (public_key, _) = suite.generate_key_pair().unwrap();
+
+    let config =
+        ClientConfig::builder_with_provider(crate::crypto::aws_lc_rs::default_provider().into())
+            .with_ech(EchMode::Grease(EchGreaseConfig::new(suite, public_key)))
+            .unwrap()
+            .with_root_certificates(roots())
+            .with_no_client_auth();
+
+    let hello = WireClientHello::capture(config);
+
+    assert!(hello.extension(0xfe0d).is_some(), "no GREASE ECH");
+    assert_eq!(hello.versions(), vec![0x0304, 0x0303]);
+}

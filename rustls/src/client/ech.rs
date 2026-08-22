@@ -235,7 +235,12 @@ impl EchGreaseConfig {
                 config: EchConfigPayload::V18(EchConfigContents {
                     key_config: HpkeKeyConfig {
                         config_id: config_id[0],
-                        kem_id: HpkeKem::DHKEM_P256_HKDF_SHA256,
+                        // The KEM the configured suite actually uses, not a
+                        // fixed one: it decides the length of `enc` below, and
+                        // that length is visible on the wire. A client
+                        // GREASEing with X25519 while claiming P-256 is
+                        // distinguishable from one that means it.
+                        kem_id: suite.kem,
                         public_key: PayloadU16::new(self.placeholder_key.0.clone()),
                         symmetric_cipher_suites: vec![suite.sym],
                     },
