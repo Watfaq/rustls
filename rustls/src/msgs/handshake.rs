@@ -877,11 +877,6 @@ impl RawExtension {
         }
     }
 
-    /// Bytes this extension takes on the wire, header included.
-    pub(crate) fn encoded_len(&self) -> usize {
-        4 + self.payload.len()
-    }
-
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.typ.encode(bytes);
         let body = LengthPrefixedBuffer::new(ListLength::U16, bytes);

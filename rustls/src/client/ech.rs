@@ -16,7 +16,7 @@ use crate::hash_hs::{HandshakeHash, HandshakeHashBuffer};
 use crate::log::{debug, trace, warn};
 use crate::msgs::base::{Payload, PayloadU16};
 use crate::msgs::codec::{Codec, Reader};
-use crate::msgs::enums::{ExtensionType, HpkeKem};
+use crate::msgs::enums::ExtensionType;
 use crate::msgs::handshake::{
     ClientExtensions, ClientHelloPayload, EchConfigContents, EchConfigPayload, Encoding,
     EncryptedClientHello, EncryptedClientHelloOuter, HandshakeMessagePayload, HandshakePayload,
@@ -330,7 +330,7 @@ impl EchGreaseConfig {
         // `enable_sni` is false either way: the inner hello is never sent, it
         // exists only so the payload below is the length a real one would be.
         let mut grease_state = match (self.hpke, &self.placeholder_key) {
-            (Some(hpke), Some(placeholder_key)) => EchState::new(
+            (Some(hpke), Some(_)) => EchState::new(
                 &EchConfig {
                     config: EchConfigPayload::V18(contents),
                     suite: hpke,
@@ -1000,7 +1000,7 @@ mod tests {
 
     use super::*;
     use crate::enums::CipherSuite;
-    use crate::msgs::enums::{Compression, HpkeAead, HpkeKdf};
+    use crate::msgs::enums::{Compression, HpkeAead, HpkeKdf, HpkeKem};
     use crate::msgs::handshake::{Random, ServerExtensions, SessionId};
 
     #[test]
