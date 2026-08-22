@@ -768,11 +768,8 @@ fn test_reality_session_id_not_overwritten_by_session_id_generator() {
     let ch_reality_only = client_hello_sent_for_config(config.clone()).unwrap();
 
     // Get ClientHello with Reality + a session_id_generator that would produce all-0xFF
-    let ch_reality_with_generator = client_hello_sent_with_session_id_generator(
-        config,
-        |_| [0xFF; 32],
-    )
-    .unwrap();
+    let ch_reality_with_generator =
+        client_hello_sent_with_session_id_generator(config, |_| [0xFF; 32]).unwrap();
 
     // Reality session_id should NOT be all zeros (it's encrypted data)
     assert_ne!(ch_reality_only.session_id.data, [0u8; 32]);
@@ -780,13 +777,20 @@ fn test_reality_session_id_not_overwritten_by_session_id_generator() {
     // With both Reality and session_id_generator, the session_id should come from
     // Reality (not the generator's all-0xFF value)
     assert_ne!(
-        ch_reality_with_generator.session_id.data,
+        ch_reality_with_generator
+            .session_id
+            .data,
         [0xFF; 32],
         "session_id_generator should not overwrite Reality's session_id"
     );
 
     // The session_id should still be non-zero (Reality-computed)
-    assert_ne!(ch_reality_with_generator.session_id.data, [0u8; 32]);
+    assert_ne!(
+        ch_reality_with_generator
+            .session_id
+            .data,
+        [0u8; 32]
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -869,7 +873,10 @@ impl WireClientHello {
             extensions.push((typ, body[at..at + len].to_vec()));
             at += len;
         }
-        assert_eq!(at, exts_end, "extension list length disagrees with contents");
+        assert_eq!(
+            at, exts_end,
+            "extension list length disagrees with contents"
+        );
         assert_eq!(at, body.len(), "trailing bytes after the extension list");
 
         Self {
@@ -906,7 +913,9 @@ impl WireClientHello {
 
     /// key_share(51): a u16 length, then entries of group, u16 length, body.
     fn key_shares(&self) -> Vec<(u16, Vec<u8>)> {
-        let body = self.extension(51).expect("no key_share");
+        let body = self
+            .extension(51)
+            .expect("no key_share");
         let mut at = 2;
         let mut out = Vec::new();
         while at < body.len() {
@@ -1201,9 +1210,7 @@ fn a_dictated_cipher_list_does_not_get_the_scsv_appended() {
 
     assert_eq!(hello.cipher_suites, vec![0x1301, 0x1302, 0x1303]);
     assert!(
-        !hello
-            .cipher_suites
-            .contains(&0x00ff),
+        !hello.cipher_suites.contains(&0x00ff),
         "TLS_EMPTY_RENEGOTIATION_INFO_SCSV added behind the caller's back"
     );
 }
@@ -1216,9 +1223,7 @@ fn the_default_cipher_list_still_carries_the_scsv() {
     let hello = WireClientHello::capture(client_config_with_profile(Default::default()));
 
     assert!(
-        hello
-            .cipher_suites
-            .contains(&0x00ff),
+        hello.cipher_suites.contains(&0x00ff),
         "suites: {:04x?}",
         hello.cipher_suites
     );

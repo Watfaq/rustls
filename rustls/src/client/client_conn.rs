@@ -894,7 +894,6 @@ impl ConnectionCore<ClientConnectionData> {
             sendable_plaintext: None,
         };
 
-
         let state =
             hs::start_handshake::<fn(&[u8]) -> [u8; 32]>(name, extra_exts, config, &mut cx, None)?;
         Ok(Self::new(state, data, common_state))

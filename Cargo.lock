@@ -2537,6 +2537,7 @@ dependencies = [
  "subtle",
  "time",
  "webpki-roots 1.0.7",
+ "x25519-dalek",
  "x509-parser 0.17.0",
  "zeroize",
  "zlib-rs",

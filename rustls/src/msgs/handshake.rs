@@ -1161,9 +1161,7 @@ impl<'a> Codec<'a> for ClientExtensions<'a> {
         if generated.is_empty()
             && trailing.is_empty()
             && self.prepended_extensions.is_empty()
-            && self
-                .appended_extensions
-                .is_empty()
+            && self.appended_extensions.is_empty()
         {
             return;
         }
@@ -1453,8 +1451,6 @@ impl ClientHelloPayload {
             })
             .unwrap_or_default()
     }
-
-
 
     pub(crate) fn has_certificate_compression_extension_with_duplicates(&self) -> bool {
         if let Some(algs) = &self.certificate_compression_algorithms {

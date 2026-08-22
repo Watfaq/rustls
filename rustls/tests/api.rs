@@ -8187,8 +8187,8 @@ const CONFIDENTIALITY_LIMIT: u64 = 1024;
 mod client_hello_shaping {
     use std::sync::Arc;
 
-    use rustls::client::{ClientHelloProfile, Padding};
     use rustls::RawExtension;
+    use rustls::client::{ClientHelloProfile, Padding};
 
     use super::*;
 

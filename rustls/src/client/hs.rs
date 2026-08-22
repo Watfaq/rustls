@@ -15,8 +15,8 @@ use crate::SupportedCipherSuite;
 use crate::bs_debug;
 use crate::check::inappropriate_handshake_message;
 use crate::client::client_conn::ClientConnectionData;
-use crate::client::common::ClientHelloDetails;
 use crate::client::client_hello_profile::Grease;
+use crate::client::common::ClientHelloDetails;
 use crate::client::ech::EchState;
 use crate::client::{ClientConfig, EchMode, EchStatus, tls13};
 use crate::common_state::{CommonState, HandshakeKind, KxState, State};
@@ -47,7 +47,6 @@ use crate::verify::ServerCertVerifier;
 pub(super) type NextState<'a> = Box<dyn State<ClientConnectionData> + 'a>;
 pub(super) type NextStateOrError<'a> = Result<NextState<'a>, Error>;
 pub(super) type ClientContext<'a> = crate::common_state::Context<'a, ClientConnectionData>;
-
 
 pub(super) fn start_handshake<T>(
     server_name: ServerName<'static>,
@@ -146,9 +145,7 @@ where
     );
 
     let ech_state = match config.ech_mode.as_ref() {
-        Some(EchMode::Enable(ech_config)) => {
-            Some(ech_config.state(server_name.clone(), &config)?)
-        }
+        Some(EchMode::Enable(ech_config)) => Some(ech_config.state(server_name.clone(), &config)?),
         _ => None,
     };
 
@@ -174,7 +171,6 @@ where
         reality_state,
     )
 }
-
 
 struct ExpectServerHello {
     input: ClientHelloInput,
@@ -465,10 +461,18 @@ where
             .push(RawExtension::empty(grease.first_extension));
     }
 
-    exts.prepended_extensions
-        .extend(profile.prepend_extensions.iter().cloned());
-    exts.appended_extensions
-        .extend(profile.append_extensions.iter().cloned());
+    exts.prepended_extensions.extend(
+        profile
+            .prepend_extensions
+            .iter()
+            .cloned(),
+    );
+    exts.appended_extensions.extend(
+        profile
+            .append_extensions
+            .iter()
+            .cloned(),
+    );
 
     if let Some(grease) = input.hello.grease {
         exts.appended_extensions

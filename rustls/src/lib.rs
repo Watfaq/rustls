@@ -594,13 +594,13 @@ pub mod client {
     mod tls13;
 
     pub use builder::WantsClientCert;
-    pub use client_hello_profile::{ClientHelloProfile, Padding};
     pub use client_conn::{
         ClientConfig, ClientConnectionData, ClientSessionStore, EarlyDataError, ResolvesClientCert,
         Resumption, Tls12Resumption, UnbufferedClientConnection,
     };
     #[cfg(feature = "std")]
     pub use client_conn::{ClientConnection, WriteEarlyData};
+    pub use client_hello_profile::{ClientHelloProfile, Padding};
     pub use ech::{EchConfig, EchGreaseConfig, EchMode, EchStatus};
     pub use handy::AlwaysResolvesClientRawPublicKeys;
     #[cfg(any(feature = "std", feature = "hashbrown"))]
