@@ -1,4 +1,5 @@
 use alloc::boxed::Box;
+use alloc::format;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::iter;
@@ -52,7 +53,9 @@ impl EchMode {
     pub fn fips(&self) -> bool {
         match self {
             Self::Enable(ech_config) => ech_config.suite.fips(),
-            Self::Grease(grease_config) => grease_config.suite.fips(),
+            Self::Grease(grease_config) => grease_config
+                .hpke
+                .is_some_and(|hpke| hpke.fips()),
         }
     }
 }
@@ -189,8 +192,17 @@ impl EchConfig {
 /// Configuration for GREASE Encrypted Client Hello.
 #[derive(Clone, Debug)]
 pub struct EchGreaseConfig {
-    pub(crate) suite: &'static dyn Hpke,
-    pub(crate) placeholder_key: HpkePublicKey,
+    pub(crate) suite: HpkeSuite,
+
+    /// The provider to encapsulate with, when there is one.
+    ///
+    /// GREASE carries no information: the payload is random, and the
+    /// encapsulated key is addressed to a public key nobody holds. A working
+    /// KEM is therefore a convenience here, not a requirement - and demanding
+    /// one shuts out providers that ship no HPKE at all, which is the opposite
+    /// of what GREASE is for. See [`Self::without_provider`].
+    pub(crate) hpke: Option<&'static dyn Hpke>,
+    pub(crate) placeholder_key: Option<HpkePublicKey>,
 }
 
 impl EchGreaseConfig {
@@ -205,9 +217,52 @@ impl EchGreaseConfig {
     /// [^0]: <https://www.rfc-editor.org/rfc/rfc8701>
     pub fn new(suite: &'static dyn Hpke, placeholder_key: HpkePublicKey) -> Self {
         Self {
-            suite,
-            placeholder_key,
+            suite: suite.suite(),
+            hpke: Some(suite),
+            placeholder_key: Some(placeholder_key),
         }
+    }
+
+    /// Construct a GREASE ECH configuration without an HPKE provider.
+    ///
+    /// The extension this produces is the same shape as the one
+    /// [`Self::new`] produces, and carries the same amount of information -
+    /// none. The encapsulated key is random bytes of the length the named KEM
+    /// implies rather than the output of a real encapsulation, which for
+    /// X25519 is not a distinction anyone can observe, and for the NIST curves
+    /// means a value that is not a point on the curve.
+    ///
+    /// Use it where the crypto provider has no HPKE to offer - `ring` has
+    /// none, and it is what embedded and MIPS builds use, since `aws-lc-rs`
+    /// does not support those targets. The alternative there is not a better
+    /// GREASE but no GREASE at all, and a hello one extension short of the
+    /// clients it means to blend in with.
+    ///
+    /// Returns an error for a KEM whose encapsulated key length this crate
+    /// does not know, or an AEAD with no tag length.
+    pub fn without_provider(suite: HpkeSuite) -> Result<Self, Error> {
+        if suite
+            .kem
+            .encapsulated_key_len()
+            .is_none()
+        {
+            return Err(Error::General(format!(
+                "unknown encapsulated key length for {:?}",
+                suite.kem
+            )));
+        }
+        if suite.sym.aead_id.tag_len().is_none() {
+            return Err(Error::General(format!(
+                "unknown tag length for {:?}",
+                suite.sym.aead_id
+            )));
+        }
+
+        Ok(Self {
+            suite,
+            hpke: None,
+            placeholder_key: None,
+        })
     }
 
     /// Build a GREASE ECH extension based on the placeholder configuration.
@@ -226,35 +281,78 @@ impl EchGreaseConfig {
         let mut config_id: [u8; 1] = [0; 1];
         secure_random.fill(&mut config_id[..])?;
 
-        let suite = self.suite.suite();
+        let suite = self.suite;
+
+        // The KEM the configured suite actually uses, not a fixed one: it
+        // decides the length of `enc` below, and that length is visible on the
+        // wire. A client GREASEing with X25519 while sending a P-256 sized key
+        // is distinguishable from one that means it.
+        // Without a provider there is no key to encapsulate to, so a random
+        // value of the right length stands in for both the recipient key and
+        // the encapsulated one. Neither is read by anything: the first is only
+        // there because the config type will not hold an empty key, and the
+        // second goes on the wire where, for X25519, random and real are the
+        // same thing to anyone looking.
+        let mut filler = vec![
+            0;
+            suite
+                .kem
+                .encapsulated_key_len()
+                .ok_or_else(|| Error::General(format!(
+                    "unknown encapsulated key length for {:?}",
+                    suite.kem
+                )))?
+        ];
+        if self.placeholder_key.is_none() {
+            secure_random.fill(&mut filler)?;
+        }
+
+        let contents = EchConfigContents {
+            key_config: HpkeKeyConfig {
+                config_id: config_id[0],
+                kem_id: suite.kem,
+                public_key: PayloadU16::new(
+                    self.placeholder_key
+                        .as_ref()
+                        .map(|key| key.0.clone())
+                        .unwrap_or_else(|| filler.clone()),
+                ),
+                symmetric_cipher_suites: vec![suite.sym],
+            },
+            maximum_name_length: 0,
+            public_name: DnsName::try_from("filler").unwrap(),
+            extensions: Vec::default(),
+        };
 
         // Construct a dummy ECH state - we don't have a real ECH config from a server since
         // this is for GREASE.
-        let mut grease_state = EchState::new(
-            &EchConfig {
-                config: EchConfigPayload::V18(EchConfigContents {
-                    key_config: HpkeKeyConfig {
-                        config_id: config_id[0],
-                        // The KEM the configured suite actually uses, not a
-                        // fixed one: it decides the length of `enc` below, and
-                        // that length is visible on the wire. A client
-                        // GREASEing with X25519 while claiming P-256 is
-                        // distinguishable from one that means it.
-                        kem_id: suite.kem,
-                        public_key: PayloadU16::new(self.placeholder_key.0.clone()),
-                        symmetric_cipher_suites: vec![suite.sym],
-                    },
-                    maximum_name_length: 0,
-                    public_name: DnsName::try_from("filler").unwrap(),
-                    extensions: Vec::default(),
-                }),
-                suite: self.suite,
-            },
-            inner_name,
-            false,
-            secure_random,
-            false, // Does not matter if we enable/disable SNI here. Inner hello is not used.
-        )?;
+        //
+        // `enable_sni` is false either way: the inner hello is never sent, it
+        // exists only so the payload below is the length a real one would be.
+        let mut grease_state = match (self.hpke, &self.placeholder_key) {
+            (Some(hpke), Some(placeholder_key)) => EchState::new(
+                &EchConfig {
+                    config: EchConfigPayload::V18(contents),
+                    suite: hpke,
+                },
+                inner_name,
+                false,
+                secure_random,
+                false,
+            )?,
+            // No provider to encapsulate with, so the encapsulated key is
+            // random bytes of the length the KEM implies. Nothing downstream
+            // reads it, and nothing on the wire can tell the difference for
+            // X25519.
+            _ => EchState::grease(
+                &contents,
+                suite.sym,
+                EncapsulatedSecret(filler),
+                inner_name,
+                secure_random,
+                false,
+            )?,
+        };
 
         // Construct an inner hello using the outer hello - this allows us to know the size of
         // dummy payload we should use for the GREASE extension.
@@ -313,7 +411,12 @@ pub(crate) struct EchState {
     // A source of secure random data.
     secure_random: &'static dyn SecureRandom,
     // An HPKE sealer context that can be used for encrypting ECH data.
-    sender: Box<dyn HpkeSealer>,
+    /// `None` for a GREASE offer, which has nothing to seal.
+    ///
+    /// The state is built anyway, because sizing the random payload like a
+    /// real inner hello is the whole point of the exercise; it just never
+    /// encrypts one.
+    sender: Option<Box<dyn HpkeSealer>>,
     // The ID of the ECH configuration we've chosen - this is included in the outer ECH extension.
     config_id: u8,
     // The private server name we'll use for the inner protected hello.
@@ -355,6 +458,54 @@ impl EchState {
             &HpkePublicKey(key_config.public_key.0.clone()),
         )?;
 
+        Self::assemble(
+            config_contents,
+            config.suite.suite().sym,
+            enc,
+            Some(sender),
+            inner_name,
+            client_auth_enabled,
+            secure_random,
+            enable_sni,
+        )
+    }
+
+    /// State for a GREASE offer.
+    ///
+    /// Takes the encapsulated key rather than producing one: GREASE addresses
+    /// nobody, so there is nothing to encapsulate to and no provider needed to
+    /// do it with.
+    pub(crate) fn grease(
+        config_contents: &EchConfigContents,
+        cipher_suite: HpkeSymmetricCipherSuite,
+        enc: EncapsulatedSecret,
+        inner_name: ServerName<'static>,
+        secure_random: &'static dyn SecureRandom,
+        enable_sni: bool,
+    ) -> Result<Self, Error> {
+        Self::assemble(
+            config_contents,
+            cipher_suite,
+            enc,
+            None,
+            inner_name,
+            false,
+            secure_random,
+            enable_sni,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn assemble(
+        config_contents: &EchConfigContents,
+        cipher_suite: HpkeSymmetricCipherSuite,
+        enc: EncapsulatedSecret,
+        sender: Option<Box<dyn HpkeSealer>>,
+        inner_name: ServerName<'static>,
+        client_auth_enabled: bool,
+        secure_random: &'static dyn SecureRandom,
+        enable_sni: bool,
+    ) -> Result<Self, Error> {
         // Start a new transcript buffer for the inner hello.
         let mut inner_hello_transcript = HandshakeHashBuffer::new();
         if client_auth_enabled {
@@ -364,11 +515,11 @@ impl EchState {
         Ok(Self {
             secure_random,
             sender,
-            config_id: key_config.config_id,
+            config_id: config_contents.key_config.config_id,
             inner_name,
             outer_name: config_contents.public_name.clone(),
             maximum_name_length: config_contents.maximum_name_length,
-            cipher_suite: config.suite.suite().sym,
+            cipher_suite,
             enc,
             inner_hello_random: Random::new(secure_random)?,
             inner_hello_transcript,
@@ -442,6 +593,12 @@ impl EchState {
         // Next we compute the proper extension payload.
         let payload = self
             .sender
+            .as_mut()
+            // A state without a sealer exists only to size a GREASE payload,
+            // and GREASE never reaches this path.
+            .ok_or(Error::General(
+                "ECH offer attempted without a sealer".into(),
+            ))?
             .seal(&outer_hello.get_encoding(), &encoded_inner_hello)?;
 
         // And then we replace the placeholder extension with the real one.

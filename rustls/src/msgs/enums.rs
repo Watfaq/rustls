@@ -349,6 +349,25 @@ enum_builder! {
     }
 }
 
+impl HpkeKem {
+    /// Length of an encapsulated key, `Nenc` in [RFC 9180 section 7.1].
+    ///
+    /// `None` for a KEM this crate does not know, since its encapsulated keys
+    /// have no length we can state.
+    ///
+    /// [RFC 9180 section 7.1]: https://www.rfc-editor.org/rfc/rfc9180#section-7.1
+    pub(crate) fn encapsulated_key_len(&self) -> Option<usize> {
+        Some(match self {
+            Self::DHKEM_P256_HKDF_SHA256 => 65,
+            Self::DHKEM_P384_HKDF_SHA384 => 97,
+            Self::DHKEM_P521_HKDF_SHA512 => 133,
+            Self::DHKEM_X25519_HKDF_SHA256 => 32,
+            Self::DHKEM_X448_HKDF_SHA512 => 56,
+            Self::Unknown(_) => return None,
+        })
+    }
+}
+
 enum_builder! {
     /// The Key Derivation Function (`Kdf`) type for HPKE operations.
     /// Listed by IANA, as specified in [RFC 9180 Section 7.2]

@@ -1315,3 +1315,81 @@ fn grease_ech_does_not_drop_tls12_from_the_hello() {
     assert!(hello.extension(0xfe0d).is_some(), "no GREASE ECH");
     assert_eq!(hello.versions(), vec![0x0304, 0x0303]);
 }
+
+#[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
+#[test]
+fn grease_ech_needs_no_hpke_provider() {
+    use crate::client::{EchGreaseConfig, EchMode};
+    use crate::crypto::hpke::HpkeSuite;
+    use crate::msgs::enums::{HpkeAead, HpkeKdf, HpkeKem};
+    use crate::msgs::handshake::HpkeSymmetricCipherSuite;
+
+    // The suite browsers GREASE with. Nothing here has to be implemented by
+    // the provider - the payload is random and the encapsulated key addresses
+    // nobody - which is the point: `ring` ships no HPKE, and `ring` is what
+    // every MIPS and embedded build uses.
+    let suite = HpkeSuite {
+        kem: HpkeKem::DHKEM_X25519_HKDF_SHA256,
+        sym: HpkeSymmetricCipherSuite {
+            kdf_id: HpkeKdf::HKDF_SHA256,
+            aead_id: HpkeAead::AES_128_GCM,
+        },
+    };
+
+    #[cfg(feature = "ring")]
+    let provider = crate::crypto::ring::default_provider();
+    #[cfg(all(not(feature = "ring"), feature = "aws_lc_rs"))]
+    let provider = crate::crypto::aws_lc_rs::default_provider();
+
+    let config = ClientConfig::builder_with_provider(provider.into())
+        .with_ech(EchMode::Grease(
+            EchGreaseConfig::without_provider(suite).unwrap(),
+        ))
+        .unwrap()
+        .with_root_certificates(roots())
+        .with_no_client_auth();
+
+    let hello = WireClientHello::capture(config);
+    let body = hello
+        .extension(0xfe0d)
+        .expect("no encrypted_client_hello");
+
+    // 0x00 outer, kdf u16, aead u16, config_id u8, then the encapsulated key
+    // as a length-prefixed payload. X25519 keys are 32 bytes, and a GREASE
+    // value of any other length would be the one thing a placeholder must not
+    // be: distinguishable.
+    assert_eq!(body[0], 0x00, "not an outer ECH");
+    assert_eq!(u16::from_be_bytes([body[1], body[2]]), 0x0001, "kdf");
+    assert_eq!(u16::from_be_bytes([body[3], body[4]]), 0x0001, "aead");
+    assert_eq!(u16::from_be_bytes([body[6], body[7]]), 32, "enc length");
+
+    // And the payload is sized like a real sealed inner hello: long enough to
+    // be one, and not a round number that would give it away.
+    let enc_end = 8 + 32;
+    let payload_len = u16::from_be_bytes([body[enc_end], body[enc_end + 1]]);
+    assert!(
+        payload_len > 64,
+        "payload of {payload_len} bytes is too short to pass"
+    );
+}
+
+#[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
+#[test]
+fn grease_ech_refuses_a_kem_it_cannot_size() {
+    use crate::client::EchGreaseConfig;
+    use crate::crypto::hpke::HpkeSuite;
+    use crate::msgs::enums::{HpkeAead, HpkeKdf, HpkeKem};
+    use crate::msgs::handshake::HpkeSymmetricCipherSuite;
+
+    // Guessing a length would produce an encapsulated key of the wrong size,
+    // which is worse than declining: it looks like a client that does not know
+    // its own KEM.
+    let suite = HpkeSuite {
+        kem: HpkeKem::Unknown(0x1234),
+        sym: HpkeSymmetricCipherSuite {
+            kdf_id: HpkeKdf::HKDF_SHA256,
+            aead_id: HpkeAead::AES_128_GCM,
+        },
+    };
+    assert!(EchGreaseConfig::without_provider(suite).is_err());
+}
