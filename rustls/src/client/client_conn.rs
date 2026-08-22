@@ -10,7 +10,7 @@ use super::hs;
 #[cfg(feature = "std")]
 use crate::WantsVerifier;
 use crate::builder::ConfigBuilder;
-use crate::client::{EchMode, EchStatus};
+use crate::client::{ClientHelloProfile, EchMode, EchStatus};
 use crate::common_state::{CommonState, Protocol, Side};
 use crate::conn::{ConnectionCore, UnbufferedConnectionCommon};
 use crate::crypto::{CryptoProvider, SupportedKxGroup};
@@ -290,6 +290,12 @@ pub struct ClientConfig {
 
     /// VLESS Reality protocol configuration. The default is None (disabled).
     pub(super) reality_config: Option<Arc<crate::client::reality::RealityConfig>>,
+
+    /// How the `ClientHello` should look on the wire.
+    ///
+    /// The default sends what rustls has always sent. See
+    /// [`ClientHelloProfile`] for why anyone would want something else.
+    pub client_hello_profile: Arc<ClientHelloProfile>,
 }
 
 impl ClientConfig {

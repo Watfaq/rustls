@@ -560,7 +560,7 @@ pub use crate::key_log::{KeyLog, NoKeyLog};
 pub use crate::key_log_file::KeyLogFile;
 pub use crate::msgs::enums::NamedGroup;
 pub use crate::msgs::ffdhe_groups;
-pub use crate::msgs::handshake::DistinguishedName;
+pub use crate::msgs::handshake::{DistinguishedName, RawExtension};
 #[cfg(feature = "std")]
 pub use crate::stream::{Stream, StreamOwned};
 pub use crate::suites::{
@@ -581,6 +581,7 @@ pub use crate::webpki::RootCertStore;
 pub mod client {
     pub(super) mod builder;
     mod client_conn;
+    mod client_hello_profile;
     mod common;
     mod ech;
     pub(super) mod handy;
@@ -593,6 +594,7 @@ pub mod client {
     mod tls13;
 
     pub use builder::WantsClientCert;
+    pub use client_hello_profile::{ClientHelloProfile, Padding};
     pub use client_conn::{
         ClientConfig, ClientConnectionData, ClientSessionStore, EarlyDataError, ResolvesClientCert,
         Resumption, Tls12Resumption, UnbufferedClientConnection,

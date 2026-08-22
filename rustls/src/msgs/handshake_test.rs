@@ -783,6 +783,7 @@ fn sample_client_hello_payload() -> ClientHelloPayload {
             named_groups: Some(vec![NamedGroup::X25519]),
             protocols: Some(vec![ProtocolName::from(vec![0])]),
             supported_versions: Some(SupportedProtocolVersions {
+                grease: None,
                 tls13: true,
                 ..Default::default()
             }),

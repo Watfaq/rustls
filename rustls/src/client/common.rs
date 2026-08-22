@@ -2,6 +2,7 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use super::ResolvesClientCert;
+use super::client_hello_profile::Grease;
 use crate::log::{debug, trace};
 use crate::msgs::enums::ExtensionType;
 use crate::msgs::handshake::{CertificateChain, DistinguishedName, ProtocolName, ServerExtensions};
@@ -39,15 +40,28 @@ pub(super) struct ClientHelloDetails {
     pub(super) sent_extensions: Vec<ExtensionType>,
     pub(super) extension_order_seed: u16,
     pub(super) offered_cert_compression: bool,
+
+    /// GREASE values for this connection, if the profile asked for any.
+    ///
+    /// Chosen once and kept: a `HelloRetryRequest` makes us send a second
+    /// hello, and a peer that saw one set of GREASE values in the first and
+    /// another in the second has been handed a distinguishing feature for
+    /// free.
+    pub(super) grease: Option<Grease>,
 }
 
 impl ClientHelloDetails {
-    pub(super) fn new(alpn_protocols: Vec<ProtocolName>, extension_order_seed: u16) -> Self {
+    pub(super) fn new(
+        alpn_protocols: Vec<ProtocolName>,
+        extension_order_seed: u16,
+        grease: Option<Grease>,
+    ) -> Self {
         Self {
             alpn_protocols,
             sent_extensions: Vec::new(),
             extension_order_seed,
             offered_cert_compression: false,
+            grease,
         }
     }
 

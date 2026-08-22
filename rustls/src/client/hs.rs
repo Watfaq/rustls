@@ -16,6 +16,7 @@ use crate::bs_debug;
 use crate::check::inappropriate_handshake_message;
 use crate::client::client_conn::ClientConnectionData;
 use crate::client::common::ClientHelloDetails;
+use crate::client::client_hello_profile::Grease;
 use crate::client::ech::EchState;
 use crate::client::{ClientConfig, EchMode, EchStatus, tls13};
 use crate::common_state::{CommonState, HandshakeKind, KxState, State};
@@ -33,8 +34,9 @@ use crate::msgs::enums::{Compression, ExtensionType, NamedGroup};
 use crate::msgs::handshake::{
     CertificateStatusRequest, ClientExtensions, ClientExtensionsInput, ClientHelloPayload,
     ClientSessionTicket, EncryptedClientHello, HandshakeMessagePayload, HandshakePayload,
-    HelloRetryRequest, KeyShareEntry, ProtocolName, PskKeyExchangeModes, Random, ServerNamePayload,
-    SessionId, SupportedEcPointFormats, SupportedProtocolVersions, TransportParameters,
+    HelloRetryRequest, KeyShareEntry, ProtocolName, PskKeyExchangeModes, Random, RawExtension,
+    ServerNamePayload, SessionId, SupportedEcPointFormats, SupportedProtocolVersions,
+    TransportParameters,
 };
 use crate::msgs::message::{Message, MessagePayload};
 use crate::msgs::persist;
@@ -129,12 +131,18 @@ where
     let random = Random::new(config.provider.secure_random)?;
     let extension_order_seed = crate::rand::random_u16(config.provider.secure_random)?;
 
+    let grease = match config.client_hello_profile.grease {
+        true => Some(Grease::new(config.provider.secure_random)?),
+        false => None,
+    };
+
     let hello = ClientHelloDetails::new(
         extra_exts
             .protocols
             .clone()
             .unwrap_or_default(),
         extension_order_seed,
+        grease,
     );
 
     let ech_state = match config.ech_mode.as_ref() {
@@ -236,9 +244,10 @@ where
     // builder semantics.
     let forbids_tls12 = cx.common.is_quic() || ech_state.is_some();
 
-    let supported_versions = SupportedProtocolVersions {
+    let mut supported_versions = SupportedProtocolVersions {
         tls12: config.supports_version(ProtocolVersion::TLSv1_2) && !forbids_tls12,
         tls13: config.supports_version(ProtocolVersion::TLSv1_3),
+        grease: None,
     };
 
     // should be unreachable thanks to config builder
@@ -396,19 +405,77 @@ where
     // but they also need to keep the same order as the previous ClientHello
     exts.order_seed = input.hello.extension_order_seed;
 
-    let mut cipher_suites: Vec<_> = config
-        .provider
-        .cipher_suites
-        .iter()
-        .filter_map(|cs| match cs.usable_for_protocol(cx.common.protocol) {
-            true => Some(cs.suite()),
-            false => None,
-        })
-        .collect();
+    let profile = &config.client_hello_profile;
 
-    if supported_versions.tls12 {
-        // We don't do renegotiation at all, in fact.
-        cipher_suites.push(CipherSuite::TLS_EMPTY_RENEGOTIATION_INFO_SCSV);
+    let mut cipher_suites: Vec<_> = match &profile.cipher_suites {
+        // The caller owns the whole list, signalling value included: an
+        // implementation being imitated that sends the renegotiation_info
+        // extension rather than the SCSV would be given away by us adding one.
+        Some(suites) => suites
+            .iter()
+            .copied()
+            .map(CipherSuite::from)
+            .collect(),
+        None => {
+            let mut suites: Vec<_> = config
+                .provider
+                .cipher_suites
+                .iter()
+                .filter_map(|cs| match cs.usable_for_protocol(cx.common.protocol) {
+                    true => Some(cs.suite()),
+                    false => None,
+                })
+                .collect();
+
+            if supported_versions.tls12 {
+                // We don't do renegotiation at all, in fact.
+                suites.push(CipherSuite::TLS_EMPTY_RENEGOTIATION_INFO_SCSV);
+            }
+            suites
+        }
+    };
+
+    // Shape the hello per the configured profile.
+    //
+    // This is deliberately the last thing done to the lists: GREASE goes in
+    // front of what rustls decided, and rustls decides nothing on the basis of
+    // it. A peer that reads any of these values as meaningful is broken in
+    // exactly the way RFC 8701 exists to expose.
+    if let Some(grease) = input.hello.grease {
+        cipher_suites.insert(0, CipherSuite::from(grease.cipher_suite));
+
+        if let Some(groups) = exts.named_groups.as_mut() {
+            groups.insert(0, NamedGroup::from(grease.named_group));
+        }
+
+        if let Some(shares) = exts.key_shares.as_mut() {
+            shares.insert(
+                0,
+                KeyShareEntry::new(
+                    NamedGroup::from(grease.named_group),
+                    Grease::KEY_SHARE_PAYLOAD,
+                ),
+            );
+        }
+
+        supported_versions.grease = Some(grease.version);
+        exts.supported_versions = Some(supported_versions);
+
+        exts.prepended_extensions
+            .push(RawExtension::empty(grease.first_extension));
+    }
+
+    exts.prepended_extensions
+        .extend(profile.prepend_extensions.iter().cloned());
+    exts.appended_extensions
+        .extend(profile.append_extensions.iter().cloned());
+
+    if let Some(grease) = input.hello.grease {
+        exts.appended_extensions
+            .push(RawExtension {
+                typ: grease.last_extension,
+                payload: Grease::LAST_EXTENSION_PAYLOAD.to_vec(),
+            });
     }
 
     let mut chp_payload = ClientHelloPayload {
@@ -460,8 +527,26 @@ where
         _ => {}
     }
 
+    // Pad the hello last of all.
+    //
+    // Later steps only ever fill in bytes that are already counted: the PSK
+    // binder is a placeholder of its final size by now, and Reality writes
+    // into the session id, which is fixed width. So the length measured here
+    // is the length that goes on the wire.
+    if let Some(padding) = profile.padding {
+        let mut measured = Vec::new();
+        chp_payload.encode(&mut measured);
+
+        if let Some(body_len) = padding.body_len(measured.len()) {
+            chp_payload
+                .extensions
+                .appended_extensions
+                .push(RawExtension::padding(body_len));
+        }
+    }
+
     // Note what extensions we sent.
-    input.hello.sent_extensions = chp_payload.collect_used();
+    input.hello.sent_extensions = chp_payload.all_sent_extensions();
 
     let mut chp = HandshakeMessagePayload(HandshakePayload::ClientHello(chp_payload));
 

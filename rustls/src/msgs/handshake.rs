@@ -698,6 +698,13 @@ impl TlsListElement for KeyShareEntry {
 pub(crate) struct SupportedProtocolVersions {
     pub(crate) tls13: bool,
     pub(crate) tls12: bool,
+
+    /// A GREASE value (RFC 8701) to advertise ahead of the real versions.
+    ///
+    /// Only ever set on the client side. A server MUST ignore versions it does
+    /// not know, so this is a probe that the peer does so - which is the whole
+    /// point of GREASE.
+    pub(crate) grease: Option<u16>,
 }
 
 impl SupportedProtocolVersions {
@@ -720,6 +727,9 @@ impl SupportedProtocolVersions {
 impl Codec<'_> for SupportedProtocolVersions {
     fn encode(&self, bytes: &mut Vec<u8>) {
         let inner = LengthPrefixedBuffer::new(Self::LIST_LENGTH, bytes);
+        if let Some(grease) = self.grease {
+            ProtocolVersion::from(grease).encode(inner.buf);
+        }
         if self.tls13 {
             ProtocolVersion::TLSv1_3.encode(inner.buf);
         }
@@ -740,7 +750,11 @@ impl Codec<'_> for SupportedProtocolVersions {
             };
         }
 
-        Ok(Self { tls13, tls12 })
+        Ok(Self {
+            tls13,
+            tls12,
+            grease: None,
+        })
     }
 }
 
@@ -824,6 +838,55 @@ impl TransportParameters<'_> {
             Self::QuicDraft(v) => TransportParameters::QuicDraft(v.into_owned()),
             Self::Quic(v) => TransportParameters::Quic(v.into_owned()),
         }
+    }
+}
+
+/// An extension rustls does not model, carried verbatim in a `ClientHello`.
+///
+/// rustls emits the extensions rustls needs. A client that has to resemble
+/// some other implementation on the wire needs extensions rustls has no reason
+/// to support - ALPS, `signed_certificate_timestamp`, GREASE placeholders -
+/// and their bodies are fixed strings, not something worth modelling. Those go
+/// here: type and body are written out as given, and nothing in rustls looks
+/// at them.
+///
+/// Placement is decided by which list the extension is put in, see
+/// [`ClientHelloProfile`][crate::client::ClientHelloProfile].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RawExtension {
+    /// Extension type, as it goes on the wire.
+    pub typ: u16,
+    /// Extension body, without the type and length header.
+    pub payload: Vec<u8>,
+}
+
+impl RawExtension {
+    /// An extension with an empty body, e.g. `signed_certificate_timestamp`.
+    pub fn empty(typ: u16) -> Self {
+        Self {
+            typ,
+            payload: Vec::new(),
+        }
+    }
+
+    /// A `padding` extension (RFC 7685) of `len` zero bytes.
+    pub fn padding(len: usize) -> Self {
+        Self {
+            typ: u16::from(ExtensionType::Padding),
+            payload: vec![0u8; len],
+        }
+    }
+
+    /// Bytes this extension takes on the wire, header included.
+    pub(crate) fn encoded_len(&self) -> usize {
+        4 + self.payload.len()
+    }
+
+    fn encode(&self, bytes: &mut Vec<u8>) {
+        self.typ.encode(bytes);
+        let body = LengthPrefixedBuffer::new(ListLength::U16, bytes);
+        body.buf
+            .extend_from_slice(&self.payload);
     }
 }
 
@@ -933,6 +996,13 @@ extension_struct! {
 
         /// Extensions that must appear contiguously.
         pub(crate) contiguous_extensions: Vec<ExtensionType>,
+
+        /// Verbatim extensions written before everything rustls generates.
+        pub(crate) prepended_extensions: Vec<RawExtension>,
+
+        /// Verbatim extensions written after everything rustls generates,
+        /// but ahead of ECH and PSK - those two are required to be last.
+        pub(crate) appended_extensions: Vec<RawExtension>,
     }
 }
 
@@ -964,6 +1034,8 @@ impl ClientExtensions<'_> {
             encrypted_client_hello_outer,
             order_seed,
             contiguous_extensions,
+            prepended_extensions,
+            appended_extensions,
         } = self;
         ClientExtensions {
             server_name: server_name.map(|x| x.into_owned()),
@@ -991,13 +1063,30 @@ impl ClientExtensions<'_> {
             encrypted_client_hello_outer,
             order_seed,
             contiguous_extensions,
+            prepended_extensions,
+            appended_extensions,
         }
     }
 
     pub(crate) fn used_extensions_in_encoding_order(&self) -> Vec<ExtensionType> {
+        let mut exts = self.body_extensions_in_encoding_order();
+        exts.extend(self.trailing_extensions());
+        exts
+    }
+
+    /// Extensions rustls generates, in the order they are written.
+    ///
+    /// The ones which the standard pins to the end of the list are not here,
+    /// see [`Self::trailing_extensions`].
+    fn body_extensions_in_encoding_order(&self) -> Vec<ExtensionType> {
         let mut exts = self.order_insensitive_extensions_in_random_order();
         exts.extend(&self.contiguous_extensions);
+        exts
+    }
 
+    /// Extensions the standard requires to come last, in that order.
+    fn trailing_extensions(&self) -> Vec<ExtensionType> {
+        let mut exts = Vec::with_capacity(3);
         if self
             .encrypted_client_hello_outer
             .is_some()
@@ -1010,6 +1099,22 @@ impl ClientExtensions<'_> {
         if self.preshared_key_offer.is_some() {
             exts.push(ExtensionType::PreSharedKey);
         }
+        exts
+    }
+
+    /// Every extension type this hello carries, verbatim ones included.
+    ///
+    /// Used to spot extensions a server answers without being asked. Verbatim
+    /// extensions belong in it for the same reason the modelled ones do: the
+    /// client did send them, so an answer to one is not unsolicited.
+    pub(crate) fn all_sent_extensions(&self) -> Vec<ExtensionType> {
+        let mut exts = self.collect_used();
+        exts.extend(
+            self.prepended_extensions
+                .iter()
+                .chain(self.appended_extensions.iter())
+                .map(|raw| ExtensionType::from(raw.typ)),
+        );
         exts
     }
 
@@ -1050,14 +1155,30 @@ impl ClientExtensions<'_> {
 
 impl<'a> Codec<'a> for ClientExtensions<'a> {
     fn encode(&self, bytes: &mut Vec<u8>) {
-        let order = self.used_extensions_in_encoding_order();
+        let generated = self.body_extensions_in_encoding_order();
+        let trailing = self.trailing_extensions();
 
-        if order.is_empty() {
+        if generated.is_empty()
+            && trailing.is_empty()
+            && self.prepended_extensions.is_empty()
+            && self
+                .appended_extensions
+                .is_empty()
+        {
             return;
         }
 
         let body = LengthPrefixedBuffer::new(ListLength::U16, bytes);
-        for item in order {
+        for raw in &self.prepended_extensions {
+            raw.encode(body.buf);
+        }
+        for item in generated {
+            self.encode_one(item, body.buf);
+        }
+        for raw in &self.appended_extensions {
+            raw.encode(body.buf);
+        }
+        for item in trailing {
             self.encode_one(item, body.buf);
         }
     }

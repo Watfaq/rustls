@@ -357,6 +357,7 @@ fn minimal_client_hello() -> ClientHelloPayload {
             signature_schemes: Some(vec![SignatureScheme::RSA_PSS_SHA256]),
             named_groups: Some(vec![NamedGroup::X25519, NamedGroup::secp256r1]),
             supported_versions: Some(SupportedProtocolVersions {
+                grease: None,
                 tls12: true,
                 tls13: true,
             }),

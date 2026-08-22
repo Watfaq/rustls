@@ -788,3 +788,453 @@ fn test_reality_session_id_not_overwritten_by_session_id_generator() {
     // The session_id should still be non-zero (Reality-computed)
     assert_ne!(ch_reality_with_generator.session_id.data, [0u8; 32]);
 }
+
+// ---------------------------------------------------------------------------
+// ClientHello shaping
+//
+// These read the bytes that actually left, not the parsed structure: parsing
+// throws away exactly what is under test here - GREASE, extensions rustls does
+// not model, and the order everything went out in.
+
+/// A `ClientHello` as it went on the wire.
+#[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
+struct WireClientHello {
+    /// Handshake message body, without the four byte header.
+    body: Vec<u8>,
+    cipher_suites: Vec<u16>,
+    /// Extensions in the order they were written, unknown ones included.
+    extensions: Vec<(u16, Vec<u8>)>,
+}
+
+#[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
+impl WireClientHello {
+    fn capture(config: ClientConfig) -> Self {
+        let mut conn =
+            ClientConnection::new(config.into(), ServerName::try_from("localhost").unwrap())
+                .unwrap();
+        let mut bytes = Vec::new();
+        conn.write_tls(&mut bytes).unwrap();
+
+        // Whatever we did to the hello, it must still be a hello. Reading it
+        // back with rustls own parser is the cheapest way to be sure every
+        // length field still agrees with its contents.
+        let message = OutboundOpaqueMessage::read(&mut Reader::init(&bytes))
+            .unwrap()
+            .into_plain_message();
+        match Message::try_from(message).unwrap() {
+            Message {
+                payload:
+                    MessagePayload::Handshake {
+                        parsed: HandshakeMessagePayload(HandshakePayload::ClientHello(_)),
+                        ..
+                    },
+                ..
+            } => {}
+            other => panic!("unexpected message {other:?}"),
+        }
+
+        Self::parse(&bytes)
+    }
+
+    fn parse(record: &[u8]) -> Self {
+        let record_len = u16::from_be_bytes([record[3], record[4]]) as usize;
+        let handshake = &record[5..5 + record_len];
+        assert_eq!(handshake[0], 0x01, "not a ClientHello");
+
+        let hs_len = u32::from_be_bytes([0, handshake[1], handshake[2], handshake[3]]) as usize;
+        let body = handshake[4..4 + hs_len].to_vec();
+
+        let mut at = 2 + 32; // legacy_version, random
+        at += 1 + body[at] as usize; // legacy_session_id
+
+        let suites_len = u16::from_be_bytes([body[at], body[at + 1]]) as usize;
+        at += 2;
+        let cipher_suites = body[at..at + suites_len]
+            .chunks_exact(2)
+            .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+            .collect();
+        at += suites_len;
+
+        at += 1 + body[at] as usize; // legacy_compression_methods
+
+        let exts_len = u16::from_be_bytes([body[at], body[at + 1]]) as usize;
+        at += 2;
+        let exts_end = at + exts_len;
+
+        let mut extensions = Vec::new();
+        while at < exts_end {
+            let typ = u16::from_be_bytes([body[at], body[at + 1]]);
+            let len = u16::from_be_bytes([body[at + 2], body[at + 3]]) as usize;
+            at += 4;
+            extensions.push((typ, body[at..at + len].to_vec()));
+            at += len;
+        }
+        assert_eq!(at, exts_end, "extension list length disagrees with contents");
+        assert_eq!(at, body.len(), "trailing bytes after the extension list");
+
+        Self {
+            body,
+            cipher_suites,
+            extensions,
+        }
+    }
+
+    fn extension_types(&self) -> Vec<u16> {
+        self.extensions
+            .iter()
+            .map(|(typ, _)| *typ)
+            .collect()
+    }
+
+    fn extension(&self, typ: u16) -> Option<&[u8]> {
+        self.extensions
+            .iter()
+            .find(|(t, _)| *t == typ)
+            .map(|(_, body)| body.as_slice())
+    }
+
+    /// supported_groups(10): a u16 length, then u16 group ids.
+    fn named_groups(&self) -> Vec<u16> {
+        let body = self
+            .extension(10)
+            .expect("no supported_groups");
+        body[2..]
+            .chunks_exact(2)
+            .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+            .collect()
+    }
+
+    /// key_share(51): a u16 length, then entries of group, u16 length, body.
+    fn key_shares(&self) -> Vec<(u16, Vec<u8>)> {
+        let body = self.extension(51).expect("no key_share");
+        let mut at = 2;
+        let mut out = Vec::new();
+        while at < body.len() {
+            let group = u16::from_be_bytes([body[at], body[at + 1]]);
+            let len = u16::from_be_bytes([body[at + 2], body[at + 3]]) as usize;
+            at += 4;
+            out.push((group, body[at..at + len].to_vec()));
+            at += len;
+        }
+        out
+    }
+
+    /// supported_versions(43): a u8 length, then u16 versions.
+    fn versions(&self) -> Vec<u16> {
+        let body = self
+            .extension(43)
+            .expect("no supported_versions");
+        body[1..]
+            .chunks_exact(2)
+            .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+            .collect()
+    }
+}
+
+#[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
+fn is_grease(value: u16) -> bool {
+    let [high, low] = value.to_be_bytes();
+    high == low && low & 0x0f == 0x0a
+}
+
+#[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
+fn client_config_with_profile(profile: crate::client::ClientHelloProfile) -> ClientConfig {
+    #[cfg(feature = "ring")]
+    let provider = crate::crypto::ring::default_provider();
+    #[cfg(all(not(feature = "ring"), feature = "aws_lc_rs"))]
+    let provider = crate::crypto::aws_lc_rs::default_provider();
+
+    let mut config = ClientConfig::builder_with_provider(provider.into())
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_root_certificates(roots())
+        .with_no_client_auth();
+    config.client_hello_profile = Arc::new(profile);
+    config
+}
+
+#[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
+#[test]
+fn default_profile_changes_nothing() {
+    let hello = WireClientHello::capture(client_config_with_profile(Default::default()));
+
+    assert!(
+        !hello
+            .cipher_suites
+            .iter()
+            .copied()
+            .any(is_grease),
+        "cipher suites: {:04x?}",
+        hello.cipher_suites
+    );
+    assert!(
+        !hello
+            .extension_types()
+            .into_iter()
+            .any(is_grease),
+        "extensions: {:04x?}",
+        hello.extension_types()
+    );
+    assert!(
+        !hello
+            .named_groups()
+            .into_iter()
+            .any(is_grease)
+    );
+    assert!(hello.extension(21).is_none(), "unasked-for padding");
+}
+
+#[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
+#[test]
+fn grease_reaches_every_list_that_browsers_grease() {
+    let hello = WireClientHello::capture(client_config_with_profile(
+        crate::client::ClientHelloProfile {
+            grease: true,
+            ..Default::default()
+        },
+    ));
+
+    // Always first in its list: a peer that reads the list in order and gives
+    // up on the first value it does not know is caught by the next connection
+    // rather than years later.
+    assert!(
+        is_grease(hello.cipher_suites[0]),
+        "cipher suites: {:04x?}",
+        hello.cipher_suites
+    );
+    assert!(
+        is_grease(hello.named_groups()[0]),
+        "groups: {:04x?}",
+        hello.named_groups()
+    );
+    assert!(
+        is_grease(hello.versions()[0]),
+        "versions: {:04x?}",
+        hello.versions()
+    );
+
+    let key_shares = hello.key_shares();
+    assert!(is_grease(key_shares[0].0));
+    assert_eq!(
+        key_shares[0].1,
+        vec![0x00],
+        "the GREASE key share is one zero byte, as BoringSSL sends it"
+    );
+
+    // And what rustls meant to send is still behind it.
+    assert!(
+        hello.cipher_suites[1..]
+            .iter()
+            .copied()
+            .any(|suite| !is_grease(suite))
+    );
+    assert!(key_shares.len() > 1, "GREASE displaced the real key share");
+}
+
+#[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
+#[test]
+fn grease_extensions_bracket_the_list() {
+    let hello = WireClientHello::capture(client_config_with_profile(
+        crate::client::ClientHelloProfile {
+            grease: true,
+            ..Default::default()
+        },
+    ));
+
+    let types = hello.extension_types();
+    let grease: Vec<u16> = types
+        .iter()
+        .copied()
+        .filter(|typ| is_grease(*typ))
+        .collect();
+
+    assert_eq!(grease.len(), 2, "extensions: {types:04x?}");
+    assert_ne!(
+        grease[0], grease[1],
+        "two extensions of one type is a protocol error"
+    );
+    assert!(is_grease(types[0]), "first extension: {:04x}", types[0]);
+    assert!(
+        is_grease(*types.last().unwrap()),
+        "last extension: {:04x}",
+        types.last().unwrap()
+    );
+
+    assert_eq!(hello.extension(grease[0]), Some(&[][..]));
+    assert_eq!(hello.extension(grease[1]), Some(&[0x00][..]));
+}
+
+#[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
+#[test]
+fn verbatim_extensions_go_where_they_were_put() {
+    use crate::msgs::handshake::RawExtension;
+
+    // signed_certificate_timestamp and ALPS: two extensions rustls has no
+    // reason to model, and two no browser omits.
+    let hello = WireClientHello::capture(client_config_with_profile(
+        crate::client::ClientHelloProfile {
+            prepend_extensions: vec![RawExtension::empty(0x0012)],
+            append_extensions: vec![RawExtension {
+                typ: 0x4469,
+                payload: b"\x00\x03\x02h2".to_vec(),
+            }],
+            ..Default::default()
+        },
+    ));
+
+    let types = hello.extension_types();
+    assert_eq!(types[0], 0x0012, "extensions: {types:04x?}");
+    assert_eq!(*types.last().unwrap(), 0x4469);
+
+    assert_eq!(hello.extension(0x0012), Some(&[][..]));
+    assert_eq!(hello.extension(0x4469), Some(&b"\x00\x03\x02h2"[..]));
+}
+
+#[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
+#[test]
+fn padding_brings_the_hello_to_the_target_length() {
+    use crate::client::Padding;
+
+    // A window wide enough that the hello lands inside it whatever rustls
+    // decides to send. The rule itself is unit tested; what matters here is
+    // that the arithmetic agrees with the bytes.
+    let hello = WireClientHello::capture(client_config_with_profile(
+        crate::client::ClientHelloProfile {
+            padding: Some(Padding {
+                only_above: 0,
+                up_to: 1024,
+            }),
+            ..Default::default()
+        },
+    ));
+
+    assert_eq!(hello.body.len(), 1024);
+    assert_eq!(*hello.extension_types().last().unwrap(), 21);
+    assert!(
+        hello
+            .extension(21)
+            .unwrap()
+            .iter()
+            .all(|byte| *byte == 0)
+    );
+}
+
+#[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
+#[test]
+fn padding_stays_out_of_a_hello_already_long_enough() {
+    use crate::client::Padding;
+
+    let hello = WireClientHello::capture(client_config_with_profile(
+        crate::client::ClientHelloProfile {
+            padding: Some(Padding {
+                only_above: 0,
+                up_to: 16,
+            }),
+            ..Default::default()
+        },
+    ));
+
+    assert!(hello.body.len() > 16);
+    assert!(hello.extension(21).is_none());
+}
+
+#[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
+#[test]
+fn padding_counts_the_grease_and_verbatim_extensions_too() {
+    use crate::client::Padding;
+    use crate::msgs::handshake::RawExtension;
+
+    // Padding is measured last, so everything else has to be in place by then.
+    // Get that order wrong and the hello comes out short by the size of the
+    // other extensions - which is the length signal padding exists to erase.
+    let hello = WireClientHello::capture(client_config_with_profile(
+        crate::client::ClientHelloProfile {
+            grease: true,
+            append_extensions: vec![RawExtension {
+                typ: 0x4469,
+                payload: vec![0xab; 64],
+            }],
+            padding: Some(Padding {
+                only_above: 0,
+                up_to: 1024,
+            }),
+            ..Default::default()
+        },
+    ));
+
+    assert_eq!(hello.body.len(), 1024);
+}
+
+#[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
+#[test]
+fn the_cipher_suite_list_can_be_dictated() {
+    // Chrome's list, GREASE aside. The last four are static RSA key exchange,
+    // which rustls does not implement and will never negotiate - they are here
+    // to be counted by whoever is looking, and for no other reason.
+    let chrome = vec![
+        0x1301, 0x1302, 0x1303, 0xc02b, 0xc02f, 0xc02c, 0xc030, 0xcca9, 0xcca8, 0x009c, 0x009d,
+        0x002f, 0x0035,
+    ];
+
+    let hello = WireClientHello::capture(client_config_with_profile(
+        crate::client::ClientHelloProfile {
+            cipher_suites: Some(chrome.clone()),
+            ..Default::default()
+        },
+    ));
+
+    assert_eq!(hello.cipher_suites, chrome);
+}
+
+#[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
+#[test]
+fn a_dictated_cipher_list_does_not_get_the_scsv_appended() {
+    // rustls signals "no renegotiation" with the SCSV; browsers use the
+    // renegotiation_info extension instead. An extra pseudo-suite in the list
+    // is as visible as any real one, so the caller's list has to be final.
+    let hello = WireClientHello::capture(client_config_with_profile(
+        crate::client::ClientHelloProfile {
+            cipher_suites: Some(vec![0x1301, 0x1302, 0x1303]),
+            ..Default::default()
+        },
+    ));
+
+    assert_eq!(hello.cipher_suites, vec![0x1301, 0x1302, 0x1303]);
+    assert!(
+        !hello
+            .cipher_suites
+            .contains(&0x00ff),
+        "TLS_EMPTY_RENEGOTIATION_INFO_SCSV added behind the caller's back"
+    );
+}
+
+#[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
+#[test]
+fn the_default_cipher_list_still_carries_the_scsv() {
+    // The flip side of the test above: leaving the profile alone must not
+    // quietly change what rustls has always sent.
+    let hello = WireClientHello::capture(client_config_with_profile(Default::default()));
+
+    assert!(
+        hello
+            .cipher_suites
+            .contains(&0x00ff),
+        "suites: {:04x?}",
+        hello.cipher_suites
+    );
+}
+
+#[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
+#[test]
+fn grease_goes_in_front_of_a_dictated_cipher_list_too() {
+    let hello = WireClientHello::capture(client_config_with_profile(
+        crate::client::ClientHelloProfile {
+            grease: true,
+            cipher_suites: Some(vec![0x1301, 0x1302]),
+            ..Default::default()
+        },
+    ));
+
+    assert!(is_grease(hello.cipher_suites[0]));
+    assert_eq!(hello.cipher_suites[1..], [0x1301, 0x1302]);
+}

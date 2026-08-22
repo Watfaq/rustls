@@ -8183,3 +8183,76 @@ impl ActiveKeyExchange for FakeHybridActive {
 }
 
 const CONFIDENTIALITY_LIMIT: u64 = 1024;
+
+mod client_hello_shaping {
+    use std::sync::Arc;
+
+    use rustls::client::{ClientHelloProfile, Padding};
+    use rustls::RawExtension;
+
+    use super::*;
+
+    /// A hello shaped to resemble a browser still has to be a hello.
+    ///
+    /// GREASE, extensions the peer has never heard of and a block of padding
+    /// are each individually ignorable by a correct server - this checks that
+    /// all of them together, on every version and key type, still get through.
+    #[test]
+    fn a_shaped_hello_completes_a_handshake() {
+        let provider = provider::default_provider();
+        for kt in KeyType::all_for_provider(&provider) {
+            for version in rustls::ALL_VERSIONS {
+                let mut client_config =
+                    make_client_config_with_versions(*kt, &[version], &provider);
+                client_config.client_hello_profile = Arc::new(ClientHelloProfile {
+                    grease: true,
+                    // signed_certificate_timestamp and ALPS: rustls models
+                    // neither, browsers send both.
+                    prepend_extensions: vec![RawExtension::empty(0x0012)],
+                    append_extensions: vec![RawExtension {
+                        typ: 0x4469,
+                        payload: b"\x00\x03\x02h2".to_vec(),
+                    }],
+                    padding: Some(Padding::default()),
+                    ..Default::default()
+                });
+
+                let (mut client, mut server) =
+                    make_pair_for_configs(client_config, make_server_config(*kt, &provider));
+                do_handshake(&mut client, &mut server);
+
+                assert_eq!(client.handshake_kind(), Some(HandshakeKind::Full));
+            }
+        }
+    }
+
+    /// Advertising suites rustls cannot negotiate is safe as long as the peer
+    /// still finds one it can.
+    ///
+    /// The last four here are static RSA key exchange, which rustls does not
+    /// implement. A rustls server will not pick them, which is the point: the
+    /// count and the order are visible to anyone fingerprinting the hello, and
+    /// nothing else changes.
+    #[test]
+    fn a_dictated_cipher_list_completes_a_handshake() {
+        let provider = provider::default_provider();
+        for kt in KeyType::all_for_provider(&provider) {
+            for version in rustls::ALL_VERSIONS {
+                let mut client_config =
+                    make_client_config_with_versions(*kt, &[version], &provider);
+                client_config.client_hello_profile = Arc::new(ClientHelloProfile {
+                    grease: true,
+                    cipher_suites: Some(vec![
+                        0x1301, 0x1302, 0x1303, 0xc02b, 0xc02f, 0xc02c, 0xc030, 0xcca9, 0xcca8,
+                        0x009c, 0x009d, 0x002f, 0x0035,
+                    ]),
+                    ..Default::default()
+                });
+
+                let (mut client, mut server) =
+                    make_pair_for_configs(client_config, make_server_config(*kt, &provider));
+                do_handshake(&mut client, &mut server);
+            }
+        }
+    }
+}
